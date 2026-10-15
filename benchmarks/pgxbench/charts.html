@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pgxio benchmark explorer</title>
+<style>
+body{font:16px system-ui,sans-serif;color:#18313c;background:#f5f8f9;margin:0;padding:32px;max-width:1280px;margin:auto}
+h1{font-size:28px}label{display:inline-block;margin:8px 18px 12px 0}select{font:inherit;padding:6px;border:1px solid #9ab0ba;border-radius:4px;background:white}
+svg{background:white;border:1px solid #d7e2e6;width:100%;height:auto}table{border-collapse:collapse;width:100%;margin-top:18px;background:white}td,th{text-align:left;padding:8px;border-bottom:1px solid #d7e2e6}.note{color:#536c78;max-width:900px}#legend span{display:inline-block;margin:12px}text{font:13px system-ui,sans-serif;fill:#536c78}
+</style>
+<h1>pgxio benchmark explorer</h1>
+<p class="note">Every point is a trial, including failed loads. Filter to comparable workloads, pool sizes, offered rates and transports before comparing. Curves do not imply feature parity. Full raw data and exact failures are in summary.json.</p>
+<label>Stage <select id="stage"></select></label>
+<label>Nginx <select id="nginx"></select></label>
+<label>Workload <select id="workload"></select></label>
+<label>Pool <select id="pool"></select></label>
+<label>Rate <select id="rate"></select></label>
+<label>Transport <select id="transport"></select></label>
+<label>Engine <select id="engine"></select></label>
+<label>Auth <select id="auth"></select></label>
+<label>Fixture <select id="fixture"></select></label>
+<label>JWT cache <select id="jwtcache"></select></label>
+<label>X <select id="x"><option value="cpus">vCPUs</option><option value="connections">HTTP connections</option><option value="sockets">Sockets</option><option value="memory_mib">Service RAM limit (MiB)</option></select></label>
+<label>Y <select id="y"><option value="success_rps">Successful requests/sec</option><option value="http_p95_ms">HTTP p95 (ms)</option><option value="http_p99_ms">HTTP p99 (ms)</option><option value="notify_p99_ms">Notification p99 (ms)</option><option value="fresh_p99_ms">Fresh data p99 (ms)</option><option value="api_pss_mib">API PSS (MiB)</option><option value="api_cpu_ms_per_success">API CPU ms/success</option></select></label>
+<label><input type="checkbox" id="valid"> Valid Linux resource evidence only</label>
+<svg id="plot" viewBox="0 0 1000 450" role="img" aria-label="Benchmark trial scatter plot"></svg>
+<div id="legend"></div><p id="status" class="note"></p>
+<table><thead><tr><th>Exact profile</th><th>Trials</th><th>Load passes</th><th>RPS median</th><th>RPS range</th></tr></thead><tbody id="table"></tbody></table>
+<script id="data" type="application/json">DATA_PLACEHOLDER</script>
+<script>
+'use strict';
+const rows=JSON.parse(document.getElementById('data').textContent),by=id=>document.getElementById(id),ns='http://www.w3.org/2000/svg';
+const colors=['#007f86','#b74a35','#6256a6','#2f7c43','#98661c','#bd4079'];
+for(const [id,key] of [['stage','performance_profile'],['nginx','nginx_profile'],['workload','workload'],['pool','pool_mode'],['rate','offered_background_rate'],['transport','transport'],['engine','engine'],['auth','auth_mode'],['fixture','auth_fixture'],['jwtcache','jwt_cache']]){
+ const all=document.createElement('option');all.value='*';all.textContent='All';by(id).append(all);
+ for(const value of [...new Set(rows.map(r=>r[key]))].sort()){const option=document.createElement('option');option.value=String(value);option.textContent=String(value);by(id).append(option)}
+}
+function svg(tag,attrs,text){const e=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);if(text!==undefined)e.textContent=text;by('plot').append(e);return e}
+function draw(){
+ const selected=rows.filter(r=>[['stage','performance_profile'],['nginx','nginx_profile'],['workload','workload'],['pool','pool_mode'],['rate','offered_background_rate'],['transport','transport'],['engine','engine'],['auth','auth_mode'],['fixture','auth_fixture'],['jwtcache','jwt_cache']].every(([id,key])=>by(id).value==='*'||String(r[key])===by(id).value)&&(!by('valid').checked||r.resource_evidence_valid));
+ const x=by('x').value,y=by('y').value,value=r=>y==='api_pss_mib'?(r.api_pss_bytes===null?null:r.api_pss_bytes/1048576):r[y];
+ const points=selected.filter(r=>r[x]!==null&&value(r)!==null&&Number.isFinite(Number(value(r))));by('plot').replaceChildren();by('legend').replaceChildren();by('table').replaceChildren();
+ const xmax=Math.max(1,...points.map(r=>Number(r[x]))),ymax=Math.max(1,...points.map(r=>Number(value(r))))*1.08;
+ for(let i=0;i<=5;i++){const px=70+880*i/5,py=390-350*i/5;svg('line',{x1:70,x2:950,y1:py,y2:py,stroke:'#e5edef'});svg('text',{x:60,y:py+4,'text-anchor':'end'},(ymax*i/5).toFixed(1));svg('text',{x:px,y:420,'text-anchor':'middle'},(xmax*i/5).toFixed(1))}
+ svg('line',{x1:70,x2:950,y1:390,y2:390,stroke:'#607b87'});svg('line',{x1:70,x2:70,y1:40,y2:390,stroke:'#607b87'});
+ const profiles=[...new Set(selected.map(r=>r.profile_id))].sort();
+ profiles.forEach((profile,index)=>{
+  const trials=selected.filter(r=>r.profile_id===profile),first=trials[0];
+  const label=`${first.target} / ${first.performance_profile} / ${first.nginx_profile} / ${first.cpus}cpu / ${first.connections??'N/A'}c / ${first.auth_mode}-${first.jwt_cache} / ${profile.slice(0,6)}`;
+  const color=colors[index%colors.length],group=points.filter(r=>r.profile_id===profile);
+  for(const r of group){const c=svg('circle',{cx:70+880*Number(r[x])/xmax,cy:390-350*Number(value(r))/ymax,r:r.workload_passed?5:6,fill:r.workload_passed?color:'white',stroke:color,'stroke-width':2});const tip=document.createElementNS(ns,'title');tip.textContent=JSON.stringify(r,null,2);c.append(tip)}
+  const legend=document.createElement('span');legend.style.color=color;legend.textContent=label;by('legend').append(legend);
+  const values=trials.map(r=>r.success_rps).sort((a,b)=>a-b),tr=document.createElement('tr'),middle=Math.floor(values.length/2);
+  const median=values.length%2?values[middle]:(values[middle-1]+values[middle])/2;
+  for(const text of [label,values.length,trials.filter(r=>r.workload_passed).length,median.toFixed(2),`${values[0].toFixed(2)}–${values.at(-1).toFixed(2)}`]){const td=document.createElement('td');td.textContent=String(text);tr.append(td)}by('table').append(tr)
+ });
+ by('status').textContent=`${points.length} plotted trials. Filled markers passed load targets; hollow markers failed. No percentile values have been averaged.`;
+}
+for(const select of document.querySelectorAll('select,input'))select.addEventListener('change',draw);draw();
+</script></html>
