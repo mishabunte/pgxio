@@ -1,0 +1,8 @@
+Generated with the built-in image_gen tool; transparent_background=true.
+
+Use case: logo-brand.
+Create one finished horizontal logo for the open-source PostgreSQL backend named "pgxio": PostgreSQL meets input/output to the world.
+Transparent background, wide horizontal composition with generous clear padding, one logo only.
+On the left, an original charming naive doodle of a small elephant facing right, drawn with just a few chunky rounded slightly uneven blue strokes. It should look like a developer's clever simple sketch, not a corporate mascot. Clear elephant ear, tiny eye, simple head and trunk; very few details. Extend its trunk rightward into a short connection line, ending in two small opposing arrows (one input, one output), clean and immediately readable. Keep the arrows separate from the lettering.
+To the right, a large chunky monospace wordmark reading exactly "pgxio", lowercase, five characters p g x i o. One continuous word, normal consistent spacing. Lettering charcoal #20252B, except the literal letter x in blue #336791 to subtly communicate pg × io. Elephant and arrows blue #336791. Slight hand-made character in icon, crisp readable monospace type, balanced baseline and visual weight.
+Flat two-color vector-like artwork, strong readable silhouette, friendly modest open-source utility aesthetic. No tagline, no domain, no other text, no gradients, no shadows, no 3D, no circuitry, no globe, no mockup, no border, no background fill or checkerboard. Genuine alpha transparency. Readable at README header size.

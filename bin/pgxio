@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Development tooling. No migration/admin credentials enter the API container."""
+import argparse
+import base64
+import hashlib
+import hmac
+import json
+import os
+from pathlib import Path
+import secrets
+import socket
+import subprocess
+import time
+import tempfile
+import urllib.request
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
+
+ROOT = Path(__file__).resolve().parent.parent
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__)
+    sub = p.add_subparsers(dest="command", required=True)
+    sub.add_parser("init", help="create ignored local development secrets")
+    sub.add_parser("up", help="build and start local development stack")
+    sub.add_parser("down", help="stop local stack, preserving database volume")
+    token = sub.add_parser("token", help="issue a DEVELOPMENT token")
+    token.add_argument("subject", default="alice", nargs="?")
+    token.add_argument("--seconds", type=int, default=3600)
+    sub.add_parser("resolve-url", help="read PGXIO_DATABASE_URL; add hostaddr and verify-full; write to stdout (contains secret)")
+    check = sub.add_parser("check", help="check API readiness without database credentials")
+    check.add_argument("--url", default="http://127.0.0.1:8080")
+    migrate = sub.add_parser("migrate", help="run SQL using separate PGXIO_MIGRATION_URL credentials")
+    migrate.add_argument("file", type=Path)
+    jwks = sub.add_parser("jwks", help="fetch a trusted issuer's HTTPS JWKS atomically; reload workers afterwards")
+    jwks.add_argument("url")
+    jwks.add_argument("output", type=Path)
+    args = p.parse_args()
+    if args.command == "init":
+        env = ROOT / ".env"
+        if env.exists():
+            p.exit(0, ".env already exists; preserved\n")
+        fd = os.open(env, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
+            for name in ("ADMIN_PASSWORD", "WEB_PASSWORD", "DEV_SECRET"):
+                f.write(f"PGXIO_{name}={secrets.token_hex(32)}\n")
+        print("Created .env (0600). Run bin/pgxio up.")
+    elif args.command in ("up", "down"):
+        cmd = ["docker", "compose"]
+        cmd += ["up", "--build", "-d"] if args.command == "up" else ["down"]
+        subprocess.run(cmd, cwd=ROOT, check=True)
+    elif args.command == "token":
+        env = dict(line.split("=", 1) for line in (ROOT / ".env").read_text().splitlines() if line and not line.startswith("#"))
+        enc = lambda v: base64.urlsafe_b64encode(v).rstrip(b"=")
+        header = enc(b'{"alg":"HS256","typ":"JWT"}')
+        payload = enc(json.dumps({"sub":args.subject,"exp":int(time.time())+args.seconds,"iss":"pgxio-dev","aud":"pgxio"},separators=(",",":")).encode())
+        data = header+b"."+payload
+        print((data+b"."+enc(hmac.new(env["PGXIO_DEV_SECRET"].encode(),data,hashlib.sha256).digest())).decode())
+    elif args.command == "check":
+        with urllib.request.urlopen(args.url.rstrip("/")+"/readyz", timeout=10) as response:
+            print(response.read(65536).decode())
+    elif args.command == "migrate":
+        env=dict(os.environ,PGDATABASE=os.environ["PGXIO_MIGRATION_URL"])
+        # Credentials are in the subprocess environment, never process argv.
+        subprocess.run(["psql","-X","--set","ON_ERROR_STOP=1","--single-transaction","--file",str(args.file)],env=env,check=True)
+    elif args.command == "jwks":
+        if urlsplit(args.url).scheme != "https":
+            p.error("JWKS must use HTTPS")
+        with urllib.request.urlopen(args.url,timeout=15) as response:
+            if urlsplit(response.geturl()).scheme != "https":
+                p.error("JWKS redirected away from HTTPS")
+            data=response.read(1_048_577)
+        if len(data)>1_048_576:
+            p.error("JWKS exceeds 1 MiB")
+        keys=json.loads(data).get("keys",[])
+        if not keys or any(k.get("kty") not in ("RSA","EC") or not k.get("kid") for k in keys):
+            p.error("expected public RSA/EC signing keys with kid")
+        if any("d" in key or "k" in key for key in keys):
+            p.error("JWKS must contain public keys only")
+        args.output.parent.mkdir(parents=True,exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=args.output.parent,delete=False) as temp:
+            temp.write(data)
+            temp.flush()
+            os.fsync(temp.fileno())
+            name=temp.name
+        os.chmod(name,0o644)
+        os.replace(name,args.output)
+        print("JWKS updated. Reload Nginx workers to activate the keys.")
+    else:
+        url = urlsplit(os.environ["PGXIO_DATABASE_URL"])
+        addresses = socket.getaddrinfo(url.hostname, url.port or 5432, type=socket.SOCK_STREAM)
+        if not addresses:
+            p.error("database hostname has no addresses")
+        query = dict(parse_qsl(url.query))
+        query.update(hostaddr=addresses[0][4][0], sslmode="verify-full")
+        query.setdefault("sslrootcert", "/etc/ssl/certs/ca-certificates.crt")
+        print(urlunsplit((url.scheme,url.netloc,url.path,urlencode(query),"")))
+
+if __name__ == "__main__":
+    main()

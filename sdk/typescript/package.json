@@ -1,0 +1,12 @@
+{
+  "name": "@pgxio/client",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "description": "Typed SQL endpoint client; no ORM or database credentials",
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}

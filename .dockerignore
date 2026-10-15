@@ -1,0 +1,10 @@
+.git
+target
+legacy
+experiments
+.env*
+.pgxio
+.venv
+node_modules
+artifacts
+__pycache__
