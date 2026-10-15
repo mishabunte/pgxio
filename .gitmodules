@@ -1,0 +1,3 @@
+[submodule "legacy/c2h5oh"]
+	path = legacy/c2h5oh
+	url = https://github.com/mishabunte/c2h5oh.git
