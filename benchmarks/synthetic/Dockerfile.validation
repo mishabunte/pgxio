@@ -1,0 +1,11 @@
+FROM pgxio-synthetic:borrowed
+COPY benchmarks/synthetic/fixture.c benchmarks/synthetic/validate.c /validation/
+RUN make -C /postgres/src/interfaces/libpq clean && make -j2 -C /postgres/src/interfaces/libpq libpq.a CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' LDFLAGS='-fsanitize=address,undefined'
+RUN cc -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer \
+    -I/postgres/src/include -I/postgres/src/interfaces/libpq -I/opt/pgxio-libpq/include \
+    /validation/fixture.c /validation/validate.c /postgres/src/interfaces/libpq/libpq.a \
+    /postgres/src/common/libpgcommon_shlib.a /postgres/src/port/libpgport_shlib.a \
+    -lssl -lcrypto -lm -ldl -lpthread \
+    -Wl,--wrap=send,--wrap=sendmsg,--wrap=socket,--wrap=socketpair,--wrap=connect,--wrap=recv,--wrap=recvfrom,--wrap=recvmsg \
+    -o /usr/local/bin/validate-synthetic
+ENTRYPOINT ["validate-synthetic"]

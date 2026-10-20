@@ -102,7 +102,7 @@ def run_namespace(workdir, output, job, url="http://localhost:18080"):
         slow_reader_fraction=0, slow_reader_delay=1, engine=job.get('engine', "python" if job["sockets"] else "wrk2"),
         threads=job.get('threads', 2), connections=job.get('connections', 16),
         wrk_binary=None, wrk_image=job.get("wrk_image"), wrk_cpuset=job.get('wrk_cpuset'),
-        auth_mode=job.get('auth_mode'), auth_fixture=job.get('auth_fixture'))
+        auth_mode=job.get('auth_mode'), auth_fixture=job.get('auth_fixture'), request_bytes=job.get('request_bytes', 0))
 
 
 async def execute(args):

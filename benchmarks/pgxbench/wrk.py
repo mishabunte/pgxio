@@ -30,6 +30,7 @@ def config_text(driver):
                ','.join(lua_string(subject(i)) for i in range(driver.args.active_tenants)), '}']
     if driver.args.api_key_env:
         result += [',api_key=', lua_string(os.environ[driver.args.api_key_env])]
+    result += [',request_bytes=', str(getattr(driver.args, 'request_bytes', 0))]
     result.append('}\n')
     return ''.join(result)
 

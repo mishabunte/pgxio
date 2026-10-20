@@ -68,8 +68,10 @@ async def compare(args, specification=None):
     output.mkdir(parents=True, exist_ok=True)
     dump(output / 'campaign.json', {'kind': 'performance_stages' if any('profile' in job for job in specification) else 'paired_authentication', 'seed': args.seed, 'jobs': specification})
     original = {'auth_mode': 'jwt', 'auth_fixture': 'tenant', 'jwt_cache': 'default',
-                'pgxio_image': '', 'module_options': {}, 'nginx_profile': 'baseline', 'performance_profile': '', 'database_egress_delay_ms': 0,
+                'pgxio_image': '', 'module_options': {}, 'contract_enabled': True, 'config_format': 'auto', 'nginx_profile': 'baseline', 'performance_profile': '', 'database_egress_delay_ms': 0,
                 **load_settings(args.workdir)}
+    if not (Path(args.workdir) / 'compose.json').exists():
+        render(args.workdir, original)
     docker = json.loads(await asyncio.to_thread(command, ['docker', 'info', '--format', '{{json .}}']))
     environment = {'kind': 'local_performance_comparison' if any('profile' in job for job in specification) else 'local_authentication_comparison', 'started_unix': time.time(),
         'host': platform.platform(), 'docker': {k: docker.get(k) for k in
@@ -77,7 +79,7 @@ async def compare(args, specification=None):
         'limitations': ['Shared local host; exploratory repetitions, not a production ranking',
                         'Closed-loop wrk load; no minimum RAM or fixed-rate capacity claim'],
         'source_sha256': {str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in ROOT.rglob('*') if p.is_file() and '__pycache__' not in str(p)}}
+            for p in ROOT.rglob('*') if p.is_file() and not {'__pycache__', 'target', 'node_modules', '.git'}.intersection(p.parts)}}
     dump(output / 'environment.json', environment)
     outcomes, built = [], set()
     try:
@@ -89,6 +91,8 @@ async def compare(args, specification=None):
             try:
                 await asyncio.to_thread(compose, args.workdir, 'down', '--remove-orphans')
                 render(args.workdir, dict(target=job['target'], frontend='http', auth_fixture='public',
+                    database_tls=job.get('database_tls', 'verify-full'),
+                    contract_enabled=job.get('contract_enabled', True), config_format=job.get('config_format', 'auto'),
                     auth_mode=job['auth_mode'], jwt_cache=job['jwt_cache'],
                     cpus=job.get('cpus', 1), workers=job.get('workers', 1),
                     pgxio_image=job.get('pgxio_image', getattr(args, 'pgxio_image', '') or ''),
@@ -111,8 +115,45 @@ async def compare(args, specification=None):
                     from .operator import network_delay
                     await asyncio.to_thread(network_delay,args.workdir,job['database_delay_ms'])
                 await asyncio.to_thread(stats, args.workdir, output / 'db' / (stem + '-before.json'))
-                trial = await run(config)
+                if 'database_tls' in job:
+                    observation = json.loads((output / 'db' / (stem + '-before.json')).read_text())['postgres']
+                    sessions = [s for s in observation['connections'] if s['user'] == 'web']
+                    encrypted = job['database_tls'] != 'disable'
+                    if not sessions or any(s.get('ssl') is not encrypted for s in sessions):
+                        raise RuntimeError('database connections do not match requested TLS mode')
+                collector = None
+                stop = asyncio.Event()
+                host = getattr(args, 'collector_host', 'none')
+                if host != 'none':
+                    from .resources import collect, collect_colima
+                    resource_path = path.with_suffix('.resources.jsonl')
+                    if host == 'colima':
+                        ready = asyncio.Event()
+                        collector = asyncio.create_task(collect_colima(args.workdir, resource_path, stop, ready))
+                    else:
+                        collector = asyncio.create_task(collect(args.workdir, resource_path, stop=stop))
+                try:
+                    if collector and host == 'colima':
+                        waiter = asyncio.create_task(ready.wait())
+                        done, _ = await asyncio.wait([waiter, collector], timeout=15,
+                            return_when=asyncio.FIRST_COMPLETED)
+                        if collector in done:
+                            await collector
+                        if not ready.is_set():
+                            waiter.cancel()
+                            raise RuntimeError('resource sampler did not become ready')
+                    trial = await run(config)
+                finally:
+                    stop.set()
+                    if collector:
+                        await asyncio.wait_for(collector, 10)
                 await asyncio.to_thread(stats, args.workdir, output / 'db' / (stem + '-after.json'))
+                if host != 'none':
+                    from .resources import summarize
+                    evidence = summarize(resource_path, trial)
+                    if not evidence['valid']:
+                        raise RuntimeError('invalid resource evidence: ' + ','.join(evidence['errors']))
+                    outcome['resources'] = evidence['averages']
                 counts = trial['results']['counts']
                 if not counts.get('http_200'):
                     raise RuntimeError('no successful requests in authentication trial')

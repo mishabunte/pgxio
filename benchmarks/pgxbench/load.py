@@ -95,6 +95,21 @@ class Driver:
         if args.sockets and (self.public_fixture or args.auth_mode == 'none'):
             raise ValueError('authentication-cost profiles are REST-only; realtime uses the tenant JWT profile')
         self.native = self.target in ("postgrest", "supabase")
+        self.rest_input_validation = 'native' if self.native else 'schema'
+        self.output_validation = 'native' if self.native else 'schema'
+        if self.target == 'pgxio':
+            self.output_validation = 'off' if self.settings.get('effective_config_format') == 'nginx-v1' else 'schema'
+            output_option = self.settings.get('module_options', {}).get('validate_output')
+            if output_option is not None:
+                self.output_validation = 'schema' if output_option else 'off'
+            configured = self.settings.get('module_options', {}).get('validate_rest_input')
+            lockfile = Path(args.workdir) / 'images.lock.json'
+            default = 'unknown'
+            if lockfile.exists():
+                images = json.loads(lockfile.read_text()).get('images', [])
+                default = next((image.get('rest_input_validation_default', 'schema')
+                    for image in images if image['service'] == 'pgxio'), 'unknown')
+            self.rest_input_validation = ('schema' if configured else 'postgres') if configured is not None else default
         self.url = args.url.rstrip("/")
         self.ws_url = args.ws_url or self.url.replace("https://", "wss://").replace("http://", "ws://") + (
             "/realtime/v1/websocket?vsn=1.0.0" if self.target == "supabase" else "/v1/events")
@@ -139,8 +154,26 @@ class Driver:
             import os
             headers["apikey"] = os.environ[self.args.api_key_env]
         try:
-            response = await self.client.post(self.url + path,
-                json={"input": body} if self.native else body, headers=headers)
+            payload = body
+            request_bytes = getattr(self.args, 'request_bytes', 0)
+            if request_bytes:
+                raw = json.dumps({**payload, 'padding':''}, separators=(',',':')).encode()
+                remaining = request_bytes - len(raw)
+                if remaining < 0:
+                    raise ValueError('requested body size too small')
+                payload = {**payload, 'padding':'x' * remaining}
+                raw = json.dumps(payload, separators=(',',':')).encode()
+                if len(raw) != request_bytes:
+                    raise ValueError('request size mismatch')
+                # Match wrk: size the SQL input, then add PostgREST's envelope.
+                if self.native:
+                    raw = b'{"input":' + raw + b'}'
+                headers['Content-Type'] = 'application/json'
+                response = await self.client.post(self.url + path, content=raw, headers=headers)
+            else:
+                if self.native:
+                    payload = {"input": payload}
+                response = await self.client.post(self.url + path, json=payload, headers=headers)
             status = "http_" + str(response.status_code)
             try:
                 value = response.json()
@@ -182,14 +215,22 @@ class Driver:
             status, _ = await self.call("bench_one", {"id": 1}, jwt=jwt, measure=False)
             if status not in ("http_401", "http_403"):
                 raise RuntimeError("preflight invalid/expired token was accepted")
-        if not self.native:
+        if not self.native and self.rest_input_validation == "schema":
             status, _ = await self.call("bench_one", {"id": 0, "extra": True}, measure=False)
             if status != "http_400":
                 raise RuntimeError("preflight schema enforcement failed")
+        if self.target == 'pgxio' and self.rest_input_validation == 'postgres':
+            operation = 'bench_public_one' if self.public_fixture else 'bench_one'
+            headers = {'Content-Type': 'application/json'}
+            if self.args.auth_mode == 'jwt':
+                headers['Authorization'] = 'Bearer ' + self.tokens[0]
+            response = await self.client.post(self.url + '/v1/' + operation, content=b'{', headers=headers)
+            if response.status_code != 400:
+                raise RuntimeError('PostgreSQL-owned JSON validation failed')
         return {"passed": True, "checks": ["read", "update/version",
                 'fixture_slice_independence' if self.public_fixture else 'tenant_isolation',
                 'JWT_signature/expiry' if self.args.auth_mode == 'jwt' else 'anonymous_fixture_and_protected_endpoint_guard'],
-                "schema_checks": "native_gap" if self.native else "passed"}
+                "schema_checks": "passed" if self.rest_input_validation == "schema" else "SQL_owned" if self.rest_input_validation == "postgres" else "native_gap" if self.native else "unknown", "rest_input_validation": self.rest_input_validation, "output_validation": self.output_validation}
 
     async def arrivals(self, duration, rate, measure=True):
         if rate <= 0:
@@ -450,6 +491,7 @@ async def run(args):
                   "slow_reader_fraction", "slow_reader_delay")},
               "transport": "https/wss" if args.url.startswith("https:") else "http/ws",
               "engine": args.engine,
+              "rest_input_validation": driver.rest_input_validation, "output_validation": driver.output_validation,
               "authentication": {'mode': args.auth_mode, 'fixture': args.auth_fixture,
                   'jwt_cache': driver.settings.get('jwt_cache', 'default')},
               "latency_definition": "write request start to notification or version-verified snapshot on the same client clock",
@@ -458,6 +500,7 @@ async def run(args):
     lockfile = Path(args.workdir) / "images.lock.json"
     if lockfile.exists():
         report["image_lock"] = json.loads(lockfile.read_text())
+    report["workload"]["request_bytes"] = getattr(args, "request_bytes", 0)
     rate = args.rate
     if args.workload == "small-app":
         if args.sockets != 100 or args.active_tenants != 10 or args.subscriptions != 1 or args.probe_rate != 1:

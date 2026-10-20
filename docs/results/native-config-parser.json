@@ -1,0 +1,996 @@
+{
+  "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\ncc (Debian 14.2.0-19) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "serde_json": "1.0.154",
+  "jsmn_commit": "25647e692c7906b96ffd2b05ca54c097948e879c",
+  "measurements": [
+    {
+      "allocated_bytes": 683,
+      "allocations": 5,
+      "bytes": 64,
+      "fixture": "ws_auth",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        218.38554800104825,
+        214.96562052163944,
+        218.37336220701704,
+        215.1803957711728,
+        217.10505738725178
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 42,
+      "allocations": 2,
+      "bytes": 64,
+      "fixture": "ws_auth",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        142.05948479969695,
+        143.08964633215683,
+        144.0293326195917,
+        145.44614426172285,
+        143.2739968575686
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 64,
+      "fixture": "ws_auth",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        121.3872327469006,
+        120.16032891680152,
+        121.64440099098222,
+        124.54145044917885,
+        120.0574636631397
+      ],
+      "reused_scratch_bytes": 960,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 64,
+      "fixture": "ws_auth",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        58.47793782260202,
+        57.99123608211552,
+        57.40047842907655,
+        57.64386288525094,
+        58.271337862931105
+      ],
+      "reused_scratch_bytes": 960,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 64,
+      "allocations": 1,
+      "bytes": 64,
+      "fixture": "ws_auth",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        36.39623925101667,
+        34.59235866722629,
+        32.4711088862431,
+        32.86770804117658,
+        32.76083805087078
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 666,
+      "allocations": 8,
+      "bytes": 59,
+      "fixture": "ws_subscribe",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        380.41468857780484,
+        379.5037918079239,
+        375.66486664162284,
+        373.27822811426864,
+        381.9536660979833
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 16,
+      "allocations": 3,
+      "bytes": 59,
+      "fixture": "ws_subscribe",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        167.99463265763242,
+        166.14237395609507,
+        169.84322844720216,
+        167.69677633932565,
+        169.80631622441587
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 59,
+      "fixture": "ws_subscribe",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        134.427712705895,
+        132.93449901628884,
+        131.05761484963392,
+        130.4676856104095,
+        129.66954097510373
+      ],
+      "reused_scratch_bytes": 900,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 59,
+      "fixture": "ws_subscribe",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        59.86769718304238,
+        59.90290218684856,
+        60.209986753903586,
+        60.04931023715352,
+        60.17493250399159
+      ],
+      "reused_scratch_bytes": 900,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 59,
+      "allocations": 1,
+      "bytes": 59,
+      "fixture": "ws_subscribe",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        32.38333437679457,
+        33.37213612234637,
+        32.7843606841866,
+        33.75155087686139,
+        31.845482255756583
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 2085,
+      "allocations": 15,
+      "bytes": 114,
+      "fixture": "ws_escapes",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        630.6602308080384,
+        636.5942539466984,
+        644.9228288907997,
+        642.1989414761538,
+        646.4311977505818
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 28,
+      "allocations": 4,
+      "bytes": 114,
+      "fixture": "ws_escapes",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        271.92855815597693,
+        272.2963218224028,
+        271.0415108232148,
+        272.44357087071813,
+        273.6334142070123
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 26,
+      "allocations": 4,
+      "bytes": 114,
+      "fixture": "ws_escapes",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        335.57093680089486,
+        338.46410600658874,
+        339.84759164438805,
+        341.8060571708518,
+        334.6276937491634
+      ],
+      "reused_scratch_bytes": 1460,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 114,
+      "fixture": "ws_escapes",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        130.59997736295884,
+        131.5735816535972,
+        129.58874900649664,
+        129.22512017781148,
+        131.62502193713695
+      ],
+      "reused_scratch_bytes": 1460,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 114,
+      "allocations": 1,
+      "bytes": 114,
+      "fixture": "ws_escapes",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        34.08391398843878,
+        33.803228367128945,
+        33.46259932762836,
+        33.55847970388069,
+        33.502372244433026
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 651,
+      "allocations": 5,
+      "bytes": 32,
+      "fixture": "ws_unsubscribe",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        203.9496481985044,
+        204.68989485821893,
+        203.01026384527935,
+        200.97772522643228,
+        203.37485933347796
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 13,
+      "allocations": 2,
+      "bytes": 32,
+      "fixture": "ws_unsubscribe",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        112.76370543970171,
+        111.6712873351002,
+        110.02787904349739,
+        110.26501900232292,
+        116.9006661289317
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 32,
+      "fixture": "ws_unsubscribe",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        75.19421795732991,
+        72.77839679582351,
+        73.3124089704991,
+        73.36547778006026,
+        74.14209392732161
+      ],
+      "reused_scratch_bytes": 640,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 32,
+      "fixture": "ws_unsubscribe",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        35.61839429205095,
+        34.10811968484242,
+        34.61346507968008,
+        34.752629024335995,
+        34.13902737253688
+      ],
+      "reused_scratch_bytes": 640,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 32,
+      "allocations": 1,
+      "bytes": 32,
+      "fixture": "ws_unsubscribe",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        34.87602215551877,
+        31.610747559659785,
+        33.63505097945126,
+        33.48898327789065,
+        32.336693739625325
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 1631,
+      "allocations": 9,
+      "bytes": 1024,
+      "fixture": "string_1024",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        528.90169945702,
+        527.3166042677353,
+        535.5017670998144,
+        536.4360472393076,
+        538.6884696186166
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 16,
+      "allocations": 3,
+      "bytes": 1024,
+      "fixture": "string_1024",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        302.49907991852865,
+        305.0195870104518,
+        299.7825752428155,
+        299.3329217552682,
+        304.7119322336881
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 1024,
+      "fixture": "string_1024",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        763.5823513692354,
+        749.7773792862141,
+        743.3409130327057,
+        762.9334121655986,
+        761.0667047184171
+      ],
+      "reused_scratch_bytes": 10560,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 1024,
+      "fixture": "string_1024",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        687.6567284771248,
+        685.7558345524367,
+        682.9311435855412,
+        679.4277334903524,
+        680.436014469745
+      ],
+      "reused_scratch_bytes": 10560,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 1024,
+      "allocations": 1,
+      "bytes": 1024,
+      "fixture": "string_1024",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        40.34821029895149,
+        40.039572378079704,
+        40.23806138708414,
+        40.280209429848114,
+        40.10586425034491
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 16922,
+      "allocations": 15,
+      "bytes": 1020,
+      "fixture": "numbers_1024",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        4819.3253452151575,
+        4835.803634751773,
+        5082.925728319783,
+        4941.770133399209,
+        4865.2993677042805
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 16,
+      "allocations": 3,
+      "bytes": 1020,
+      "fixture": "numbers_1024",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        1287.321391796808,
+        1313.7819232790332,
+        1285.4954370179948,
+        1304.1842179620935,
+        1311.0809408320224
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 1020,
+      "fixture": "numbers_1024",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        1973.5886444356747,
+        1932.6362567637207,
+        2018.4839208826695,
+        2000.4808166666667,
+        1955.7024119947848
+      ],
+      "reused_scratch_bytes": 10520,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 1020,
+      "fixture": "numbers_1024",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        1781.7829572446556,
+        1790.6775483408928,
+        1751.963019738379,
+        1752.8463864220612,
+        1757.0115366596392
+      ],
+      "reused_scratch_bytes": 10520,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 1020,
+      "allocations": 1,
+      "bytes": 1020,
+      "fixture": "numbers_1024",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        40.24842964318488,
+        41.15518820169229,
+        40.00318190424885,
+        40.62924438100294,
+        40.08667354819744
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 16991,
+      "allocations": 9,
+      "bytes": 16384,
+      "fixture": "string_16384",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        2961.065164824319,
+        3171.4919661733616,
+        3396.319007469443,
+        2986.2887888136943,
+        2990.753688197767
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 16,
+      "allocations": 3,
+      "bytes": 16384,
+      "fixture": "string_16384",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        2400.66168,
+        2385.2402424483307,
+        2377.8059231378766,
+        2514.5542658397585,
+        2417.369521430873
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 16384,
+      "fixture": "string_16384",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        10517.189163165265,
+        10998.421096041056,
+        11150.729197622586,
+        11280.742669172932,
+        10991.421211566618
+      ],
+      "reused_scratch_bytes": 164160,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 16384,
+      "fixture": "string_16384",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        10987.061950951684,
+        10716.613498573466,
+        10830.674062049062,
+        10705.504012125535,
+        10751.769878223497
+      ],
+      "reused_scratch_bytes": 164160,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 16384,
+      "allocations": 1,
+      "bytes": 16384,
+      "fixture": "string_16384",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        255.12901826717012,
+        255.1989115825649,
+        255.72018948821986,
+        252.23920217596017,
+        256.16983742058886
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 262682,
+      "allocations": 19,
+      "bytes": 16380,
+      "fixture": "numbers_16384",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        74998.61324257425,
+        75294.5175,
+        76027.9255050505,
+        75444.52375,
+        74842.9245049505
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 16,
+      "allocations": 3,
+      "bytes": 16380,
+      "fixture": "numbers_16384",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        19306.732165809768,
+        19171.323022959183,
+        19591.789654047,
+        19347.72712628866,
+        19421.06233850129
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 16380,
+      "fixture": "numbers_16384",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        30167.67469879518,
+        30657.359948979592,
+        30020.0795,
+        30166.440763052207,
+        30744.873214285715
+      ],
+      "reused_scratch_bytes": 164120,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 16380,
+      "fixture": "numbers_16384",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        29036.329391891893,
+        28512.981297348484,
+        28479.297111742424,
+        28340.010141509432,
+        28329.368396226415
+      ],
+      "reused_scratch_bytes": 164120,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 16380,
+      "allocations": 1,
+      "bytes": 16380,
+      "fixture": "numbers_16384",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        253.5720087565082,
+        258.3691179510145,
+        254.14276032665785,
+        256.84775564193006,
+        260.18737641365436
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 66143,
+      "allocations": 9,
+      "bytes": 65536,
+      "fixture": "string_65536",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        10384.702887275242,
+        10337.963756887053,
+        10347.10103448276,
+        10440.809979137692,
+        10351.249568965517
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 16,
+      "allocations": 3,
+      "bytes": 65536,
+      "fixture": "string_65536",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        9028.949533694344,
+        9143.956074908649,
+        8872.056959219859,
+        8919.236548751487,
+        8847.490197523584
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 65536,
+      "fixture": "string_65536",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        41224.057692307695,
+        42202.77212078652,
+        42060.02409217877,
+        42207.761235955055,
+        42240.02036516854
+      ],
+      "reused_scratch_bytes": 655680,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 65536,
+      "fixture": "string_65536",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        41179.27766393442,
+        42115.41585195531,
+        42225.08637640449,
+        42494.52860169492,
+        42716.73899147727
+      ],
+      "reused_scratch_bytes": 655680,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 65536,
+      "allocations": 1,
+      "bytes": 65536,
+      "fixture": "string_65536",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        870.7073804272115,
+        841.8236111111111,
+        868.0207947575512,
+        856.536984697956,
+        844.0032983571509
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 1049114,
+      "allocations": 21,
+      "bytes": 65535,
+      "fixture": "numbers_65536",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        309051.345,
+        308255.4775,
+        302759.1125,
+        305158.06,
+        310565.7825
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 16,
+      "allocations": 3,
+      "bytes": 65535,
+      "fixture": "numbers_65536",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        77138.1887755102,
+        76197.40151515152,
+        79635.28092105263,
+        78426.73567708333,
+        76380.99684343435
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 65535,
+      "fixture": "numbers_65536",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        119767.75595238095,
+        121299.64516129032,
+        119541.22123015873,
+        119547.87698412698,
+        119395.00892857143
+      ],
+      "reused_scratch_bytes": 655660,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 65535,
+      "fixture": "numbers_65536",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        113296.0354477612,
+        112838.4020522388,
+        114118.3125,
+        116772.89134615385,
+        115137.29734848485
+      ],
+      "reused_scratch_bytes": 655660,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 65535,
+      "allocations": 1,
+      "bytes": 65535,
+      "fixture": "numbers_65536",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        874.0490400302995,
+        883.0573125147163,
+        877.980788364743,
+        883.7430481913515,
+        867.1943288241415
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 1049183,
+      "allocations": 9,
+      "bytes": 1048576,
+      "fixture": "string_1048576",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        171307.359375,
+        168980.42916666667,
+        168912.425,
+        169219.51666666666,
+        169024.18333333332
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 16,
+      "allocations": 3,
+      "bytes": 1048576,
+      "fixture": "string_1048576",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        142143.52358490566,
+        142180.78773584907,
+        142394.67688679244,
+        142575.61556603774,
+        142672.81721698114
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 1048576,
+      "fixture": "string_1048576",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        654533.1927083334,
+        670526.6927083334,
+        660937.84375,
+        658298.9635416666,
+        661797.8020833334
+      ],
+      "reused_scratch_bytes": 10486080,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 1048576,
+      "fixture": "string_1048576",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        663171.2604166666,
+        668550.921875,
+        662171.1197916666,
+        658188.140625,
+        663479.03125
+      ],
+      "reused_scratch_bytes": 10486080,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 1048576,
+      "allocations": 1,
+      "bytes": 1048576,
+      "fixture": "string_1048576",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        15076.681475903615,
+        14172.51320754717,
+        14132.7434086629,
+        14154.067099056603,
+        14170.284198113208
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "allocated_bytes": 16777754,
+      "allocations": 25,
+      "bytes": 1048575,
+      "fixture": "numbers_1048576",
+      "mode": "serde_value",
+      "ns_per_operation": [
+        4859050.65625,
+        4882299.09375,
+        4866644.28125,
+        4881961.09375,
+        4952220.625
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 16,
+      "allocations": 3,
+      "bytes": 1048575,
+      "fixture": "numbers_1048576",
+      "mode": "serde_borrowed",
+      "ns_per_operation": [
+        1252075.982142857,
+        1339253.96875,
+        1337879.1666666667,
+        1269478.9583333333,
+        1269269.71875
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 1048575,
+      "fixture": "numbers_1048576",
+      "mode": "jsmn_extract",
+      "ns_per_operation": [
+        1918378.65625,
+        1945566.015625,
+        1926794.9375,
+        1938293.171875,
+        1922703.671875
+      ],
+      "reused_scratch_bytes": 10486060,
+      "task": "extract_envelope_fields"
+    },
+    {
+      "allocated_bytes": 0,
+      "allocations": 0,
+      "bytes": 1048575,
+      "fixture": "numbers_1048576",
+      "mode": "jsmn_tokens_only",
+      "ns_per_operation": [
+        1824794.4375,
+        1826234.2875,
+        1823726.4125,
+        1827313.8125,
+        1822256.025
+      ],
+      "reused_scratch_bytes": 10486060,
+      "task": "tokenize_only"
+    },
+    {
+      "allocated_bytes": 1048575,
+      "allocations": 1,
+      "bytes": 1048575,
+      "fixture": "numbers_1048576",
+      "mode": "raw_owned_copy",
+      "ns_per_operation": [
+        16259.72876082251,
+        14468.919315992292,
+        14352.2073374761,
+        16243.18722943723,
+        15444.538194444445
+      ],
+      "reused_scratch_bytes": 0,
+      "task": "copy_only"
+    },
+    {
+      "jsmn_accepts": true,
+      "malformed": "{\"x\":tru}",
+      "serde_accepts": false
+    },
+    {
+      "jsmn_accepts": true,
+      "malformed": "{\"x\":01}",
+      "serde_accepts": false
+    },
+    {
+      "jsmn_accepts": true,
+      "malformed": "{} {}",
+      "serde_accepts": false
+    },
+    {
+      "jsmn_accepts": true,
+      "malformed": "{\"x\":1,}",
+      "serde_accepts": false
+    },
+    {
+      "jsmn_accepts": true,
+      "malformed": "{\"x\":\"\\ud800\"}",
+      "serde_accepts": false
+    }
+  ],
+  "image_id": "sha256:bd0dd823e26cde6843aa2991e9be67ecec43670f24f8722f690fd47aa12ec6ea",
+  "architecture": "arm64",
+  "os": "linux",
+  "cpu_affinity": "0"
+}

@@ -61,18 +61,6 @@ def discover(workdir):
         return {}
     records = json.loads(command(["docker", "inspect", *ids]))
     groups = {}
-    parent_peak = None
-    if settings.get("cgroup_path"):
-        # memory.peak reset applies to this open FD, not subsequent read_text
-        # opens. Keep it open across the trial to avoid previous-trial peaks.
-        try:
-            parent_peak = (Path(settings["cgroup_path"]) / "memory.peak").open("r+")
-            parent_peak.write("1")
-            parent_peak.flush()
-        except OSError:
-            if parent_peak:
-                parent_peak.close()
-            parent_peak = None  # Older kernels expose a read-only lifetime peak.
     for record in records:
         labels = record["Config"]["Labels"]
         if labels.get("com.docker.compose.project") != "pgxbench":
@@ -102,7 +90,8 @@ def host_sample():
             "swap_used_bytes": (memory["SwapTotal"] - memory["SwapFree"]) * 1024,
             "pswpin": vm["pswpin"], "pswpout": vm["pswpout"],
             "oom_kill": vm.get("oom_kill", 0),
-            "cpu_stat": Path("/proc/stat").read_text().splitlines()[0]}
+            "cpu_stat": Path("/proc/stat").read_text().splitlines()[0],
+            "load_average": [float(v) for v in Path("/proc/loadavg").read_text().split()[:3]]}
 
 
 async def collect(workdir, output, interval=1, duration=0, stop=None):
@@ -116,13 +105,26 @@ async def collect(workdir, output, interval=1, duration=0, stop=None):
     started = time.monotonic()
     refresh_at = 0
     groups = {}
+    parent_peak = None
+    if settings.get("cgroup_path"):
+        # memory.peak reset applies to this open FD, not subsequent read_text
+        # opens. Keep it open across the trial to avoid previous-trial peaks.
+        try:
+            parent_peak = (Path(settings["cgroup_path"]) / "memory.peak").open("r+")
+            parent_peak.write("1")
+            parent_peak.flush()
+        except OSError:
+            if parent_peak:
+                parent_peak.close()
+            parent_peak = None  # Older kernels expose a read-only lifetime peak.
     with output.open("w") as stream:
         stream.write(json.dumps({"type": "metadata", "timestamp": time.time(),
             "configuration": public_settings(settings), "platform": platform.platform(),
             "cpu_info": Path("/proc/cpuinfo").read_text(), "collector_interval": interval}) + "\n")
         stream.flush()
         while (not duration or time.monotonic() - started < duration) and not (stop and stop.is_set()):
-            sample = {"type": "sample", "timestamp": time.time(), "groups": {}, "errors": []}
+            sample = {"type": "sample", "timestamp": time.time(), "monotonic_seconds": time.monotonic(),
+                      "groups": {}, "errors": []}
             try:
                 if time.monotonic() >= refresh_at:
                     groups = await asyncio.to_thread(discover, workdir)
@@ -158,6 +160,56 @@ async def collect(workdir, output, interval=1, duration=0, stop=None):
     return {"resource_file": str(output)}
 
 
+async def collect_colima(workdir, output, stop, ready):
+    """Stream host /proc/cgroup samples over one SSH session; no docker exec."""
+    ids = (await asyncio.to_thread(compose, workdir, 'ps', '--quiet')).splitlines()
+    records = json.loads(await asyncio.to_thread(command, ['docker', 'inspect', *ids]))
+    groups = {}
+    for record in records:
+        labels = record['Config']['Labels']
+        if labels.get('com.docker.compose.project') != 'pgxbench':
+            raise ValueError('refusing to sample another Compose project')
+        groups[labels['com.docker.compose.service']] = {
+            'pid': record['State']['Pid'], 'container_id': record['Id'], 'role': labels['pgxbench.role']}
+    if not groups or not any(g['role'] == 'api' for g in groups.values()):
+        raise RuntimeError('no benchmark API to sample')
+    worker = Path(__file__).with_name('resource_worker.py').resolve()
+    process = await asyncio.create_subprocess_exec('colima', 'ssh', '--', 'sudo', '-n', 'python3', '-P', str(worker),
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+    path = Path(output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    async def end_input():
+        await stop.wait()
+        process.stdin.close()
+    watcher = asyncio.create_task(end_input())
+    try:
+        process.stdin.write((json.dumps(groups) + '\n').encode())
+        await process.stdin.drain()
+        with path.open('w') as stream:
+            stream.write(json.dumps({'type': 'metadata', 'timestamp': time.time(),
+                'configuration': public_settings(load_settings(workdir)), 'collector_interval': 1,
+                'collector_host': 'colima-linux-vm', 'scope': 'host-side /proc and cgroup v2'}) + '\n')
+            while line := await process.stdout.readline():
+                sample = json.loads(line)
+                if sample.get('errors'):
+                    raise RuntimeError('host resource sampling failed: ' + ','.join(sample['errors']))
+                stream.write(json.dumps(sample) + '\n')
+                stream.flush()
+                ready.set()
+        if await process.wait():
+            diagnostic = (await process.stderr.read()).decode(errors='replace')[-2000:]
+            raise RuntimeError('Colima resource sampler exited unsuccessfully: ' + diagnostic)
+    finally:
+        watcher.cancel()
+        if process.returncode is None:
+            process.stdin.close()
+            try:
+                await asyncio.wait_for(process.wait(), 5)
+            except asyncio.TimeoutError:
+                process.terminate()
+                await process.wait()
+
+
 def apply_limits(path, cpus, memory_mib=0, cpuset=None):
     root = Path("/sys/fs/cgroup").resolve()
     path = Path(path).resolve()
@@ -187,6 +239,8 @@ def summarize(path, run):
     containers = set()
     enforced = True
     first_host = last_host = None
+    measured = []
+    sample_times = {}
     config = run["configuration"]
     cap = config.get("memory_mib", 0) * 1048576
     expected_services = {"pgxio": {"pgxio"}, "node": {"node"}, "go": {"go"}, "openresty": {"openresty"},
@@ -238,10 +292,13 @@ def summarize(path, run):
                 value = parent["memory_peak_bytes"] if parent.get("memory_peak_scope") == "collector_window" else parent["memory_current_bytes"]
                 peaks["api_parent_peak_bytes"] = max(peaks["api_parent_peak_bytes"], value)
             if load_begin <= item["timestamp"] <= load_end:
+                measured.append(item)
                 for name, group in item["groups"].items():
                     identity = (name, group["container_id"])
                     containers.add(identity)
                     first.setdefault(identity, group)
+                    clock = item.get('monotonic_seconds', item['timestamp'])
+                    sample_times.setdefault(identity, [clock, clock])[1] = clock
                     last[identity] = group
     if not metadata or metadata["configuration"] != run["configuration"]:
         errors.add("configuration_mismatch")
@@ -258,9 +315,13 @@ def summarize(path, run):
     if first_host and last_host and last_host.get("oom_kill", 0) > first_host.get("oom_kill", 0):
         errors.add("host_OOM_during_trial")
     api_cpu = db_cpu = 0
+    cpu_percent = {"api": 0.0, "database": 0.0}
     for identity in containers:
         a, b = first[identity], last[identity]
         cpu = max(0, b["cpu_stat"]["usage_usec"] - a["cpu_stat"]["usage_usec"]) / 1e6
+        seconds = sample_times[identity][1] - sample_times[identity][0]
+        if seconds > 0:
+            cpu_percent[b["role"]] += 100 * cpu / seconds
         if b["role"] == "api":
             api_cpu += cpu
         else:
@@ -270,9 +331,22 @@ def summarize(path, run):
     names = [name for name, _ in containers]
     if len(names) != len(set(names)):
         errors.add("container_restarted_during_measurement")
+    averages, measured_peaks = {}, {}
+    for role in ("api", "database"):
+        for metric in ("pss_bytes", "rss_bytes", "memory_current_bytes"):
+            values = [sum(g.get(metric, 0) for g in sample["groups"].values() if g["role"] == role)
+                      for sample in measured]
+            averages[role + "_" + metric] = sum(values) / len(values) if values else None
+            measured_peaks[role + "_" + metric] = max(values) if values else None
+        averages[role + "_cpu_percent"] = cpu_percent[role] if measured else None
+    loads = [sample["host"]["load_average"][0] for sample in measured
+             if sample.get("host", {}).get("load_average")]
+    averages["host_load1"] = sum(loads) / len(loads) if loads else None
+    if len(measured) < 2:
+        errors.add("insufficient_measurement_samples")
     success = run["results"]["counts"].get("http_200", 0)
     return {"source": str(path), "valid": not errors, "errors": sorted(errors), "samples": len(samples),
-            "peaks": peaks, "api_cpu_seconds": api_cpu, "database_cpu_seconds": db_cpu,
+            "peaks": peaks, "averages": averages, "measurement_peaks": measured_peaks, "api_cpu_seconds": api_cpu, "database_cpu_seconds": db_cpu,
             "requested_memory_cap_enforced": bool(cap and enforced and samples),
             "host_memory_total_bytes": last_host["memory_total_bytes"] if last_host else None,
             "api_cpu_ms_per_success": api_cpu * 1000 / success if success else None,

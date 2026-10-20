@@ -61,12 +61,13 @@ def make_report(directory, output, include_functional=False):
             export_resource_samples(resource_path, Path(output) / "resource-samples" / path.relative_to(directory).with_suffix(".csv"))
         assessment = assess(run, resources)
         c, w, r = run["configuration"], run["workload"], run["results"]
-        row = {"performance_profile": c.get("performance_profile") or "unspecified", "nginx_profile": c.get("nginx_profile", "baseline"), "target": run["target"], "cpus": c["cpus"], "workers": c["workers"],
+        row = {"output_validation": run.get("output_validation", "legacy"), "rest_input_validation": run.get("rest_input_validation", "legacy"), "request_bytes": w.get("request_bytes", 0), "performance_profile": c.get("performance_profile") or "unspecified", "nginx_profile": c.get("nginx_profile", "baseline"), "target": run["target"], "cpus": c["cpus"], "workers": c["workers"],
                "pool_mode": c["pool_mode"], "pool_total": c["pool_total"], "memory_mib": c["memory_mib"],
                "workload": w["workload"], "offered_background_rate": w.get("background_rate", w["rate"]),
                "sockets": w["sockets"], "subscriptions": w["subscriptions"], "transport": run["transport"],
                "engine": run.get("engine", "python"),
                "auth_mode": c.get('auth_mode', 'jwt'), "auth_fixture": c.get('auth_fixture', 'tenant'),
+               "database_tls": c.get('database_tls', 'verify-full'),
                "jwt_cache": c.get('jwt_cache', 'default'),
                "connections": run.get("wrk", {}).get("connections"),
                "load_threads": run.get("wrk", {}).get("threads"),
@@ -79,6 +80,11 @@ def make_report(directory, output, include_functional=False):
                "resource_evidence_valid": assessment["resource_evidence_valid"], "source": str(path)}
         for name in ("api_pss_bytes", "api_cgroup_current_bytes", "database_pss_bytes", "host_used_bytes", "api_parent_peak_bytes"):
             row[name] = resources["peaks"][name] if resources else None
+        for name in ("api_pss_bytes", "api_rss_bytes", "api_memory_current_bytes", "database_pss_bytes",
+                     "database_memory_current_bytes", "api_cpu_percent", "database_cpu_percent", "host_load1"):
+            row[name + "_mean"] = resources.get("averages", {}).get(name) if resources else None
+        for name in ("api_pss_bytes", "api_memory_current_bytes", "database_pss_bytes"):
+            row[name + "_load_peak"] = resources.get("measurement_peaks", {}).get(name) if resources else None
         row["api_cpu_ms_per_success"] = resources["api_cpu_ms_per_success"] if resources else None
         profile_key = json.dumps({"target": run["target"], "configuration": c, "workload": w,
             "images": run.get("image_lock"), "engine": run.get("engine", "python"),
@@ -104,8 +110,8 @@ def make_report(directory, output, include_functional=False):
             writer.writerows(rows)
     text = ["# Competitive benchmark results", "",
             "Load-only passes do not qualify minimum RAM. Native feature differences remain part of the comparison.", "",
-            "| Target | Stage | Nginx | Auth | Fixture | JWT cache | vCPU | Workload | Connections | Sockets | Successful RPS | HTTP errors % | HTTP p95 ms | Event p99 ms | Fresh p99 ms | API PSS MiB | Load pass | Resources |",
-            "|---|---|---|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|"]
+            "| Target | Stage | Nginx | Auth | Fixture | JWT cache | vCPU | Workload | Connections | Sockets | Successful RPS | HTTP errors % | HTTP p95 ms | Event p99 ms | Fresh p99 ms | API peak PSS MiB | API mean PSS MiB | API mean CPU % | DB mean CPU % | Mean host load1 | Load pass | Resources |",
+            "|---|---|---|---|---|---|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|"]
     def fmt(value):
         return "N/A" if value is None else f"{value:.2f}"
     for row in rows:
@@ -113,7 +119,8 @@ def make_report(directory, output, include_functional=False):
         error_percent = row['HTTP_error_fraction'] * 100 if row['HTTP_error_fraction'] is not None else None
         text.append(f"| {row['target']} | {row['performance_profile']} | {row['nginx_profile']} | {row['auth_mode']} | {row['auth_fixture']} | {row['jwt_cache']} | {row['cpus']} | {row['workload']} | {row['connections'] or 'N/A'} | {row['sockets']} | {fmt(row['success_rps'])} | {fmt(error_percent)} | "
                     f"{fmt(row['http_p95_ms'])} | {fmt(row['notify_p99_ms'])} | {fmt(row['fresh_p99_ms'])} | "
-                    f"{fmt(pss)} | {row['workload_passed']} | {row['resource_evidence_valid']} |")
+                    f"{fmt(pss)} | {fmt(row['api_pss_bytes_mean'] / 1048576 if row['api_pss_bytes_mean'] is not None else None)} | "
+                    f"{fmt(row['api_cpu_percent_mean'])} | {fmt(row['database_cpu_percent_mean'])} | {fmt(row['host_load1_mean'])} | {row['workload_passed']} | {row['resource_evidence_valid']} |")
     # Group by all experimental variables, not merely target/CPU. Do not average percentiles.
     groups = {}
     for row, trial in zip(rows, trials):
@@ -212,7 +219,7 @@ def export_resource_samples(source, destination):
     destination.parent.mkdir(parents=True, exist_ok=True)
     with Path(source).open() as stream, destination.open("w", newline="") as target:
         fields = ["timestamp", "api_pss_bytes", "api_cgroup_bytes", "database_pss_bytes", "database_cgroup_bytes",
-                  "api_cpu_usage_usec", "database_cpu_usage_usec", "host_available_bytes", "errors"]
+                  "api_cpu_usage_usec", "database_cpu_usage_usec", "host_available_bytes", "host_load1", "errors"]
         writer = csv.DictWriter(target, fieldnames=fields)
         writer.writeheader()
         for line in stream:
@@ -221,6 +228,7 @@ def export_resource_samples(source, destination):
                 continue
             row = {"timestamp": sample["timestamp"], "errors": ";".join(sample.get("errors", [])),
                    "host_available_bytes": sample.get("host", {}).get("memory_available_bytes")}
+            row['host_load1'] = sample.get('host', {}).get('load_average', [None])[0]
             for prefix, role in (("api", "api"), ("database", "database")):
                 groups = [g for g in sample["groups"].values() if g["role"] == role]
                 row[prefix + "_pss_bytes"] = sum(g["pss_bytes"] for g in groups)

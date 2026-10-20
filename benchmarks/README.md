@@ -31,7 +31,7 @@ Use `render --frontend tls` plus `run --url https://localhost:18443` for a separ
   --output artifacts/bench-results/functional.json
 ```
 
-Every run checks real responses, tenant isolation, an acknowledged versioned update, rejection of invalid/expired JWTs, and, for custom adapters, invalid-input rejection. Output validation happens before commit in pgxio and the custom references. Fixtures use a restricted `web` role with no private-table grants and explicit SECURITY DEFINER functions. Signing keys are disposable benchmark keys, never production keys.
+Every run checks real responses, tenant isolation, an acknowledged versioned update, rejection of invalid/expired JWTs, and, for custom adapters, invalid-input rejection. Optional pgxio output validation happens before commit when enabled; custom references retain their own validation. Results record pgxio validation modes. Fixtures use a restricted `web` role with no private-table grants and explicit SECURITY DEFINER functions. Signing keys are disposable benchmark keys, never production keys.
 
 An optional adapter verification also checks rollback of invalid output. It starts/reseeds/stops only the isolated project, restores its configuration, and leaves it stopped:
 
@@ -150,6 +150,100 @@ After a successful `small-app` trial, the driver reconnects/resubscribes all cli
 `--realtime-mode notify` isolates delivery; `refetch` or `both` also measures verified fresh data. Sockets subscribe before their initial snapshot. Snapshot refetches coalesce per socket. Monotonic versions distinguish stale data from receipt of an invalidation; bursts need not produce one event per write. Mixed background writes are disallowed during causal notification probes; use read background traffic and the separate burst exercise.
 
 Use 0/100/1,000/10,000 sockets, 1/16 subscriptions, and vary `--active-tenants`: one tenant measures full fan-out; ten tenants affect one tenth of subscribers per write. Socket counts must divide evenly among active tenants. Raise `render --max-websockets` and the host descriptor limit before capacity runs. `--slow-reader-fraction 0.1 --slow-reader-delay 5` exercises slow readers. The bounded Python scheduler counts missed arrivals and refuses unbounded client-side queues. Confirm the generator itself has spare CPU before trusting a saturation point.
+
+## Socket-free borrowed/copy comparison
+
+Use the [synthetic harness](synthetic/README.md) to isolate Rust input handling,
+libpq serialization and TLS record overhead without HTTP, PostgreSQL or sockets.
+It reuses production input/borrowed-send code and runs real TLS encryption into
+an in-memory sink. Timing, allocation diagnostics and ASan/UBSan validation are
+separate. `run-synthetic.py` defaults to a dry run; the full matrix produces 750
+timing trials, 150 diagnostic cases and standalone charts.
+
+## Paired JWT cache comparison
+
+```sh
+# Dry run, then use a fresh output directory for the actual campaign.
+.venv-bench/bin/python benchmarks/jwt-cache-compare.py
+caffeinate -is .venv-bench/bin/python -u benchmarks/jwt-cache-compare.py --execute \
+  --output artifacts/jwt-cache-new > artifacts/jwt-cache-new.log 2>&1
+.venv-bench/bin/python benchmarks/summarize-jwt-cache.py artifacts/jwt-cache-new \
+  --output artifacts/jwt-cache-new-summary
+```
+
+Uses the same prebuilt images and eight-vCPU Colima placement as the RAM sweep,
+with no API memory limit. Stop other `pgxbench` campaigns first. Tests both products
+with JWT caches off/on, 1,000 entries enabled (pgxio additionally has a 1 MiB
+accounted-payload budget), 32 connections, two RPC/input sizes and three randomized
+repetitions: 24 trials, ten seconds warmup and thirty seconds measurement each.
+Ten valid RS256 JWTs are reused; cache hit counters are not collected. Products
+retain their native expiry policies. Effective cache settings and CPU limits are
+asserted before load. RAM/CPU traces, image IDs, source hashes and configuration
+evidence are retained. Input sizes cover the SQL JSON argument; native PostgREST
+adds its 10-byte HTTP wrapper.
+
+An interrupted campaign can be resumed into a **fresh** output directory using
+`--resume-from artifacts/jwt-cache-new` (repeat for multiple attempts). Summarize
+all source directories together, with the full initial campaign first. The
+combined report requires all 24 distinct valid, error-free trials and includes
+medians, trial ranges, CPU/request, RAM, latency and database utilization.
+The collector reads host resources outside the measured containers. Keep the
+laptop lid open; sleep gaps invalidate measurements. These are throughput and
+working-set measurements, not minimum-RAM qualifications.
+
+## Adaptive pgxio/PostgREST RAM sweep on Colima
+
+```sh
+# Dry run; no containers changed.
+.venv-bench/bin/python benchmarks/memory-sweep.py
+
+# No-swap limits, startup/reload checks, screening and three one-hour
+# light-load confirmations for each product. Keep the laptop lid open.
+caffeinate -is .venv-bench/bin/python -u benchmarks/memory-sweep.py --execute \
+  --output artifacts/memory-sweep-db4-01 > artifacts/memory-sweep-db4-01.log 2>&1
+
+# Resume after addressing an interrupted/invalid capture, with identical options.
+caffeinate -is .venv-bench/bin/python -u benchmarks/memory-sweep.py --execute --resume \
+  --output artifacts/memory-sweep-db4-01 >> artifacts/memory-sweep-db4-01.log 2>&1
+```
+
+Requires eight Colima CPUs, the rendered `artifacts/bench` workspace, and prebuilt
+`pgxio:borrowed-libpq` and `pgxbench-wrk` images. Uses only the `pgxbench` Compose
+project, restoring its original configuration when done. API CPU 0, PostgreSQL
+CPUs 1–4, wrk CPUs 5–6. Starts at 256 MiB, halves down to 8 MiB, then refines
+in 8 MiB steps. The entire API container budget is capped before startup with
+swap disabled. Fresh cgroup lifetime peaks include startup and native reload;
+PostgREST's USR1 schema-cache reload differs from Nginx's HUP worker reload.
+
+Three profiles distinguish a 50 RPS page-read floor (wrk2, one thread/connection,
+20-second warmup and 60-second screens) from short-run budgets
+retaining 90% of each product's ample-memory median throughput at 32 connections
+(100-row page and 64 KiB one-row inputs). Only the light-load boundary receives
+three independent one-hour confirmations by default. Capacity boundaries remain
+exploratory, not hour-qualified minima. JWT caches are off, pgxio uses copied
+buffers, frontend HTTP and PostgreSQL plaintext by default; use
+`--database-tls verify-full` in a separate output directory for database TLS.
+REST-only allocations exclude PostgreSQL, OS/Docker and external proxies.
+The light profile requires achieved throughput of at least 49.5 RPS (1% load
+fidelity tolerance), while retaining the 99.9% HTTP success and p95 <100 ms SLOs.
+Its RAM assessment is saved separately from the stricter offered-rate assessment
+in the generic report; no counters or raw assessments are removed. Generator
+misses invalidate captures. Invalid resource captures are retried at most twice.
+`RESULTS.md` is updated with status and boundaries after each attempt.
+
+`status.json` records incremental boundaries, current trial, OOM evidence,
+load/resource assessments, and confirmation status. Raw results/traces are in
+`trials/`; charts are rebuilt after screening and at exit in `report/charts.html`.
+An adjacent failed cap is required before calling a confirmed allocation a
+grid minimum. An all-passing lower search limit remains unbounded. Startup or
+tool failures without memory evidence stop the run rather than inventing a
+failing boundary. Resume verifies image IDs, options and benchmark source hashes.
+Do not run two benchmark campaigns at once.
+
+`--screen-only` skips hour confirmations. `--soak` additionally runs a separate
+24-hour light-load soak per product at a candidate with at least 25% headroom;
+it adds 48 hours. Without that evidence, recommended RAM remains unverified.
+The local runner does not establish whole-server or realtime memory minima.
 
 ## Linux memory/CPU evidence
 
@@ -299,6 +393,77 @@ Run tool tests with `.venv-bench/bin/python -m unittest discover -s benchmarks/t
 
 ## Runtime performance stages and Nginx experiments
 
+### REST input allocation comparison
+
+Preserve a pre-change image as `pgxio:rest-input-before` before rebuilding, then
+build the new benchmark-feature runtime as `pgxio:rest-input`. Run:
+
+```sh
+.venv-bench/bin/python benchmarks/bench.py input-compare --execute \
+  --collector-host colima --api-cpuset 0 --db-cpuset 1 --wrk-cpuset 2-3 \
+  --output artifacts/rest-input-comparison
+```
+
+This runs 27 randomized trials: old/schema, new/PostgreSQL-owned input, and
+new/schema modes, each with 1/16/64 KiB bodies and three repetitions. It uses
+eight HTTP connections, one-row public SQL fixtures, JWTs, a 10-second warmup,
+and 30-second measurements. Padding is an optional fixture field ignored by SQL.
+Exact HTTP body sizes and effective input-validation modes stay in results and
+chart filters. New modes forward the original body; schema mode additionally
+validates a temporary DOM. Output validation depends on the image and module settings; inspect the recorded output_validation field. Legacy images always validate outputs.
+Reports do not interpret SQL-owned mode as module input-schema enforcement.
+The preflight still checks malformed JSON rejection in that mode.
+
+For sized PostgREST comparisons, `request_bytes` sizes the JSON argument passed
+to SQL, matching the wrk generator. PostgREST's required `{"input":...}` wrapper
+adds 10 HTTP body bytes. Padding remains inside that argument; it is not an
+additional RPC function parameter.
+
+The runner never rebuilds the selected images. `--baseline-image` and `--image`
+select alternatives; pin matching compiler/base images when attributing changes
+to runtime code. The Rust build also runs `tests/allocations.rs`, which compares
+isolated input-path allocator calls/requested bytes for the previous algorithm,
+raw forwarding and optional schema checks. These counts exclude HTTP, JWT,
+libpq and response processing and are not whole-request RAM measurements.
+
+Add `--collector-host colima` to `perf-compare` or `auth-compare` on this macOS
+setup (`--collector-host local` on a Linux Docker host). The Colima adapter runs
+one read-only Python sampler on the VM host over SSH, with passwordless sudo
+for process PSS access. It needs the checkout shared at the same path in the VM.
+It does not execute samplers inside the API/database containers. Resource files
+are saved beside every trial as `.resources.jsonl`.
+
+Reports include measured-window mean/peak API and PostgreSQL PSS and cgroup RAM,
+mean CPU utilization (100% is one full CPU), and the mean of sampled host
+one-minute load averages. RAM means are one-second sample means. CPU averages
+use CPU-time deltas over the sampled interval. Host load includes the entire
+Linux VM and retains the preceding minute's history; it is not API CPU usage.
+These observations do not establish minimum RAM. The existing whole-trial peak
+columns also include warmup; `_load_peak` columns cover only the measured window.
+
+Run the matching direct SQL baseline **after** HTTP traffic has stopped:
+
+```sh
+.venv-bench/bin/python benchmarks/bench.py db-baseline \
+  --connections 1,8,32 --repetitions 3 --duration 30 --warmup 10 \
+  --workload page --output artifacts/pgbench-baseline-01
+```
+
+This command currently supports the local dedicated PostgreSQL/Colima stack.
+It uses the same fixture, verify-full TLS, restricted `web` role, and
+BEGIN/settings/function/COMMIT transaction shape, with pgbench prepared mode.
+It bypasses JWT verification, HTTP and JSON Schema validation and does not
+replicate pgxio pipelining or PostgREST's native SQL plan. Public fixtures ignore
+JWT claims, so the direct baseline sets empty claims. Its CPU assignments default
+to API 0 (idle), database 1, generator 2–3. At 32 direct connections it exceeds
+the HTTP profiles' eight-connection DB pool; keep that distinction visible.
+The API is idle but retains its pool/listener sessions; database RAM includes
+those idle sessions plus pgbench clients. Tenant JSON is constructed in SQL,
+and the native pgbench TPS excludes initial connection time. Keep these details
+visible when comparing with HTTP throughput and database memory.
+It reports SQL transactions/sec, mean latency, failures, DB RAM/CPU and host load
+separately from product RPS, then stops/restores only the benchmark stack.
+
 Preserve the pre-change benchmark-feature image before rebuilding. `perf-compare` uses existing images and never rebuilds/retags them. All stage options, image locks, CPU settings and Nginx profiles stay in each trial configuration; reports do not merge different configurations.
 
 ```sh
@@ -320,6 +485,15 @@ The complete example is long: eight profiles × four workloads × three concurre
 
 Stages use the public-data JWT fixture: `baseline` sends no new config fields to the old image; `recovery` uses sequential unprepared execution with immediate pool rejection and predecoded keys; `prepared` adds preparation; `pipeline` adds batching; `queue` enables the one-second acquisition wait; `cache` adds a 1,000-entry/1-MiB token cache. Recovery and key predecoding share the first stage. PostgREST is tested with verification caching off and at its default capacity. Both products retain their native SQL behavior.
 
+Database TLS defaults to `--database-tls verify-full`. For a matched local plaintext comparison, add
+`--database-tls disable` to `perf-compare` and use a separate output directory. This sets
+`sslmode=disable` for both products and `ssl=off` on the isolated PostgreSQL server.
+The runner checks actual web-role connections via `pg_stat_ssl` before measurement and
+records the transport in each trial configuration. pgxio uses its existing development
+setting to allow plaintext libpq; measured requests still verify the same RS256/JWKS
+tokens. This option does not change production defaults. `render --database-tls disable`
+is also available for manual local experiments.
+
 Nginx experiments are separate: `--nginx-profiles baseline,keepalive-10000,reuseport`. Use `--cpus 1|2|4|8` and an optional explicit `--workers` while retaining a fixed total pool of eight. Test `reuseport` with multiple workers and sufficient independent connections. On the Linux Docker host, add `--database-delay-ms 10` for the existing DB-destination netem experiment; the runner reapplies it after each container recreation. This needs the operator permissions/tools described under network-delay; it fails before deployment on macOS. Record measured RTT separately from the configured packet delay. These profiles do not change production defaults; use dedicated CPU assignments and enough server/generator capacity for scaling tests.
 
 For a manual profile, `render --pgxio-image pgxio:perf-auth --module-options '{"db_pipeline":false,"db_prepared_statements":true}'` selects an existing image and exact module overrides. `--nginx-profile` selects one Nginx experiment. Omit new module fields when running a legacy image. Rendering does not start services.
@@ -335,3 +509,41 @@ docker build -t pgxio:perf .
 ```
 
 Compatibility profiles are `sequential`, `unprepared`, and `failfast`. The performance suite uses one query connection so stable backend identity proves reuse after failures. The full existing integration suite uses four query connections. Production mode tests frontend HTTPS/WSS, RS256 JWKS and verify-full database TLS, including cancellation and key reload. Run one isolated suite at a time.
+
+
+## Native configuration and optional validation
+
+Current images use `runtime/pgxio.conf` and optional version 2 schemas. The renderer
+reads the image's `io.pgxio.config-format` label; `--config-format legacy-json`
+exists only to measure older images. Runtime pgxio no longer reads JSON configuration.
+
+```sh
+docker build -t pgxio:native-config .
+python3 benchmarks/bench.py --workdir artifacts/validation-runtime prepare
+python3 benchmarks/bench.py --workdir artifacts/validation-runtime validation-compare --execute \
+  --baseline-image pgxio:native-config-before --image pgxio:native-config \
+  --collector-host colima --api-cpuset 0 --db-cpuset 1 --wrk-cpuset 2-3 \
+  --output artifacts/validation-comparison
+```
+
+New benchmark work directories receive separate named database volumes; existing work directories retain their volume settings. Run only one comparison at a time because the Compose project, network and ports are shared.
+
+Preserve a pre-change image as the baseline before rebuilding. Five profiles compare
+legacy output handling, raw responses without a contract, metadata-only contracts,
+output validation, and both input/output validation. Trials use identical JWTs, verified
+database TLS, fixtures and resource limits, with seeded random order and three repetitions.
+Use `--collector-host local` on Linux. Record image/build differences when interpreting
+the legacy comparison; same-image profiles isolate validation settings more closely.
+The separate [parser microbenchmark](json-parser/README.md) compares allocation and
+parsing costs without changing the production parser.
+
+The [local native-configuration results](../docs/results/native-config-performance.md) include parser timings, allocation data, API CPU/memory, latency, throughput ranges, and limitations.
+
+### libpq copy/auto default gate
+
+See [the buffer-mode plan](../docs/plans/libpq-buffer-modes.md) and
+[the experimental client runbook](../patches/libpq/README.md#auto-default-acceptance-gate).
+`buffer-compare.py` records paired HTTP throughput, API/database CPU, RAM and load
+for copy versus auto at 1/16/64 KiB, plaintext and verified database TLS.
+The frontend uses HTTP. It checks the actual selected path before each capture.
+This gate does not compare PostgREST; keep competitor results separate.

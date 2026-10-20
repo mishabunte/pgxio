@@ -17,10 +17,74 @@ from pgxbench.load import Driver, Histogram, Metrics, valid_response
 from pgxbench.report import assess, make_report, qualify
 from pgxbench.resources import key_values, summarize
 from pgxbench.setup import prepare, render
+from scripts.nginx_config import read_settings
 from pgxbench.wrk import lua_string, parse_output, postflight
+from pgxbench.pgbench import script as pgbench_script, parse as parse_pgbench
+from pgxbench.input_compare import jobs as input_jobs
+from pgxbench.borrowed_compare import jobs as borrowed_jobs
+from pgxbench.libpq_report import report as libpq_report
 
 
 class Measurements(unittest.TestCase):
+    def test_libpq_cpu_report_keeps_transport_and_segmentation_separate(self):
+        rows=[]
+        for tls in ('disable','verify-full'):
+            for segments in (1,16):
+                for cost in (1.,2.,9.):
+                    rows.append(dict(kind='libpq_client_microbenchmark',passed=True,requests=10,
+                        profile='patched-borrowed',database_tls=tls,body_bytes=65536,segments=segments,
+                        image_id='same',cpu_ns_per_byte=cost,requests_per_second=20,client_cpu_percent=30))
+        with tempfile.TemporaryDirectory() as directory:
+            result=libpq_report(rows,directory)
+            self.assertEqual(len(result),4)
+            self.assertTrue(all(r['repetitions']==3 and r['client_cpu_ns_per_byte_median']==2 for r in result))
+    def test_borrowed_matrix_has_matched_control_and_transport_profiles(self):
+        args = argparse.Namespace(repetitions=3,warmup=10,duration=30,body_sizes=[1024,16384,65536],
+            unpatched_image='control',image='patched',connections=[8,32],database_tls='disable,verify-full',
+            wrk_image='wrk',wrk_cpuset='3',seed=7)
+        cases = borrowed_jobs(args)
+        self.assertEqual(len(cases),108)
+        self.assertEqual(cases,borrowed_jobs(args))
+        for case in cases:
+            self.assertEqual(case['pgxio_image'],'control' if case['profile']=='libpq-control' else 'patched')
+            self.assertEqual(case['module_options'].get('libpq_buf','copy'),'borrowed' if case['profile']=='libpq-borrowed' else 'copy')
+        args.database_tls='prefer'
+        with self.assertRaises(ValueError): borrowed_jobs(args)
+    def test_input_comparison_keeps_body_sizes_and_old_image_options_explicit(self):
+        args = argparse.Namespace(repetitions=3,warmup=10,duration=30,body_sizes=[1024,16384,65536],
+            baseline_image='before',image='after',connections=8,wrk_image='wrk',wrk_cpuset='2-3',seed=1)
+        jobs = input_jobs(args)
+        self.assertEqual(len(jobs), 27)
+        self.assertEqual(jobs, input_jobs(args))
+        for job in jobs:
+            if job['profile']=='input-before':
+                self.assertEqual(job['module_options'], {})
+                self.assertEqual(job['pgxio_image'], 'before')
+            else:
+                self.assertEqual(job['module_options']['validate_rest_input'], job['profile']=='input-schema')
+        args.body_sizes=[65537]
+        with self.assertRaises(ValueError): input_jobs(args)
+
+    def test_pgbench_calls_fixture_without_table_initialization_or_admin_role(self):
+        text = pgbench_script('page')
+        self.assertIn('web.bench_public_page', text)
+        self.assertIn("request.jwt.claims", text)
+        self.assertIn('BEGIN;', text)
+        self.assertIn('COMMIT;', text)
+        self.assertNotIn('pgbench_accounts', text)
+        self.assertIn('\\if :operation <= 10', pgbench_script('mixed'))
+
+    def test_pgbench_parser_keeps_failures_visible(self):
+        text = ('number of transactions actually processed: 500\n'
+                'number of failed transactions: 2 (0.4%)\nlatency average = 1.234 ms\n'
+                'tps = 99.5 (without initial connection time)\n')
+        result = parse_pgbench(text)
+        self.assertEqual(result['failed_transactions'], 2)
+        self.assertEqual(result['transactions'], 500)
+        self.assertEqual(result['tps'], 99.5)
+        with self.assertRaises(RuntimeError):
+            parse_pgbench('pgbench failed')
+
     def test_histogram_quantiles_and_bounded_retention(self):
         histogram = Histogram()
         for _ in range(20):
@@ -83,6 +147,63 @@ class Measurements(unittest.TestCase):
 
 
 class Generator(unittest.IsolatedAsyncioTestCase):
+    async def test_native_padding_stays_inside_the_rpc_argument(self):
+        import httpx
+        from pgxbench.campaign import run_namespace
+        with tempfile.TemporaryDirectory() as temporary:
+            workdir = Path(temporary)
+            prepare(workdir)
+            render(workdir, {'target':'postgrest','auth_fixture':'public','auth_mode':'jwt'})
+            for size in (1024, 65536):
+                def handler(request):
+                    payload = json.loads(request.content)
+                    self.assertEqual(set(payload), {'input'})
+                    self.assertEqual(len(request.content), size + 10)
+                    self.assertEqual(payload['input']['id'], 1)
+                    self.assertEqual(payload['input']['tenant'], subject(0))
+                    self.assertTrue(payload['input']['padding'])
+                    self.assertEqual(len(json.dumps(payload['input'], separators=(',',':')).encode()), size)
+                    return httpx.Response(200, json={'id':1,'version':1,'payload':'x'})
+                job = dict(target='postgrest',workload='one',rate=1,duration=1,warmup=0,sockets=0,
+                    subscriptions=1,active_tenants=2,realtime_mode='both',probe_rate=1,
+                    auth_mode='jwt',auth_fixture='public',request_bytes=size)
+                driver = Driver(run_namespace(workdir,workdir/'trial.json',job))
+                await driver.client.aclose()
+                driver.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+                try:
+                    status,_ = await driver.call('bench_one',{'id':1})
+                    self.assertEqual(status,'http_200')
+                finally:
+                    await driver.close()
+
+    async def test_input_comparison_sends_exact_sized_json_with_tenant_and_padding(self):
+        import httpx
+        from pgxbench.campaign import run_namespace
+        with tempfile.TemporaryDirectory() as temporary:
+            workdir = Path(temporary)
+            prepare(workdir)
+            render(workdir, {'target':'pgxio','auth_fixture':'public','auth_mode':'jwt'})
+            for size in (1024,16384,65536):
+                def handler(request):
+                    self.assertEqual(len(request.content), size)
+                    self.assertEqual(request.headers['content-type'], 'application/json')
+                    payload = json.loads(request.content)
+                    self.assertEqual(payload['id'], 1)
+                    self.assertEqual(payload['tenant'], subject(0))
+                    self.assertTrue(payload['padding'])
+                    return httpx.Response(200,json={'id':1,'version':1,'payload':'x'})
+                job = dict(target='pgxio',workload='one',rate=1,duration=1,warmup=0,sockets=0,
+                    subscriptions=1,active_tenants=2,realtime_mode='both',probe_rate=1,
+                    auth_mode='jwt',auth_fixture='public',request_bytes=size)
+                driver = Driver(run_namespace(workdir,workdir/'trial.json',job))
+                await driver.client.aclose()
+                driver.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+                try:
+                    status,_ = await driver.call('bench_one',{'id':1})
+                    self.assertEqual(status,'http_200')
+                finally:
+                    await driver.close()
+
     async def test_postflight_retries_pool_recovery_outside_measurement(self):
         driver = argparse.Namespace(args=argparse.Namespace(timeout=1), preflight=AsyncMock(
             side_effect=[RuntimeError('preflight fixture/authentication failed (http_503, http_503)'), {'ok': True}]))
@@ -164,6 +285,21 @@ class GeneratedStack(unittest.TestCase):
     def tearDownClass(cls):
         cls.temporary.cleanup()
 
+    def test_native_schema_metadata_and_isolated_volume(self):
+        render(self.workdir, {'target':'pgxio', 'config_format':'nginx-v1',
+            'contract_enabled':False, 'volume_prefix':'native-test',
+            'module_options':{'validate_output':False}})
+        config, routes = read_settings(self.workdir/'runtime/pgxio.conf')
+        self.assertNotIn('contract', config)
+        self.assertTrue(routes['endpoints'])
+        document=json.loads((self.workdir/'compose.json').read_text())
+        self.assertEqual(document['volumes']['db-standard']['name'],'native-test-db-standard')
+        render(self.workdir, {'contract_enabled':True, 'volume_prefix':'', 'module_options':{}})
+        contract=json.loads((self.workdir/'runtime/contract-v2.json').read_text())
+        self.assertEqual(contract['version'],2)
+        self.assertTrue(all('function' not in endpoint for endpoint in contract['endpoints']))
+        self.assertIn('contract',read_settings(self.workdir/'runtime/pgxio.conf')[0])
+
     def test_secrets_do_not_enter_public_settings(self):
         settings = json.loads((self.workdir / "settings.json").read_text())
         public = json.dumps(public_settings(settings))
@@ -180,8 +316,14 @@ class GeneratedStack(unittest.TestCase):
         self.assertEqual(services['pgxio']['image'], 'pgxio:bench-auth')
         self.assertEqual(services['pgxio']['build']['args']['CARGO_FEATURES'], 'benchmark-auth')
         render(self.workdir, {'target': 'pgxio', 'auth_mode': 'jwt', 'auth_fixture': 'tenant'})
-        module = json.loads((self.workdir / 'runtime/pgxio.json').read_text())
+        module = read_settings(self.workdir / 'runtime/pgxio.conf')[0]
         self.assertNotIn('benchmark_no_jwt', module)
+
+    def test_jwt_public_fixture_does_not_require_auth_bypass_feature(self):
+        render(self.workdir, {'target':'pgxio', 'auth_mode':'jwt', 'auth_fixture':'public',
+                             'config_format':'nginx-v1'})
+        self.assertNotIn('benchmark_no_jwt',read_settings(self.workdir/'runtime/pgxio.conf')[0])
+        render(self.workdir, {'auth_fixture':'tenant'})
 
     def test_fixed_pool_total_does_not_increase_with_workers(self):
         for cpus in (1, 2, 4, 8):
@@ -219,6 +361,23 @@ class GeneratedStack(unittest.TestCase):
         self.assertFalse((self.workdir / "runtime" / "jwt-private.pem").exists())
         self.assertFalse((self.workdir / "runtime" / "key.pem").exists())
         self.assertIn("sslmode=verify-full", config["services"]["node"]["environment"]["DATABASE_URL"])
+
+    def test_plaintext_database_is_explicit_and_matched(self):
+        for target in ('pgxio', 'postgrest'):
+            render(self.workdir, {'target': target, 'frontend': 'http', 'database_tls': 'disable',
+                                  'memory_mib': 0, 'auth_fixture': 'public'})
+            services = json.loads((self.workdir / 'compose.json').read_text())['services']
+            key = 'PGXIO_DATABASE_URL' if target == 'pgxio' else 'PGRST_DB_URI'
+            self.assertIn('sslmode=disable', services[target]['environment'][key])
+            self.assertEqual(services['postgres']['command'][-2:], ['-c', 'ssl=off'])
+            module = read_settings(self.workdir / 'runtime/pgxio.conf')[0]
+            self.assertTrue(module['development'])
+            self.assertEqual(module['jwks_file'], '/bench/jwks.json')
+        render(self.workdir, {'target': 'pgxio', 'database_tls': 'verify-full'})
+        services = json.loads((self.workdir / 'compose.json').read_text())['services']
+        self.assertIn('sslmode=verify-full', services['pgxio']['environment']['PGXIO_DATABASE_URL'])
+        self.assertNotIn('PGXIO_DEV_SECRET', services['pgxio']['environment'])
+        self.assertFalse(read_settings(self.workdir / 'runtime/pgxio.conf')[0]['development'])
 
 
 def passing_run():
@@ -313,6 +472,25 @@ class Qualification(unittest.TestCase):
             path, run = self.resource_fixture(folder, gap=True)
             self.assertIn("resource_sampling_gap", summarize(path, run)["errors"])
 
+    def test_resource_means_exclude_warmup_and_cpu_uses_sampled_seconds(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path, run = self.resource_fixture(folder)
+            run['measurement_started_unix'] = 5
+            run['measurement_finished_unix'] = 9
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            for record in records[1:]:
+                record['host'] = {'memory_total_bytes': 1000, 'memory_available_bytes': 500,
+                    'swap_used_bytes': 0, 'pswpin': 0, 'pswpout': 0, 'load_average': [2.5, 2, 1]}
+                if record['timestamp'] < 5:
+                    record['groups']['pgxio']['pss_bytes'] = 999999
+            path.write_text('\n'.join(json.dumps(record) for record in records))
+            result = summarize(path, run)
+            self.assertTrue(result['valid'])
+            self.assertEqual(result['averages']['api_pss_bytes'], 1024)
+            self.assertEqual(result['measurement_peaks']['api_pss_bytes'], 1024)
+            self.assertAlmostEqual(result['averages']['api_cpu_percent'], 10)
+            self.assertEqual(result['averages']['host_load1'], 2.5)
+
     def test_empty_results_produce_reviewable_reports_without_ram_claims(self):
         with tempfile.TemporaryDirectory() as folder:
             results = Path(folder) / "results"
@@ -373,7 +551,7 @@ class PerformanceProfiles(unittest.TestCase):
     def test_render_existing_stage_image_does_not_rebuild_it(self):
         with tempfile.TemporaryDirectory() as temporary:
             path=Path(temporary);prepare(path)
-            render(path,{'target':'pgxio','frontend':'http','auth_fixture':'public','pgxio_image':'pgxio:old',
+            render(path,{'target':'pgxio','frontend':'http','auth_fixture':'public','pgxio_image':'pgxio:old','config_format':'legacy-json',
                          'module_options':{},'nginx_profile':'reuseport'})
             service=json.loads((path/'compose.json').read_text())['services']['pgxio']
             self.assertNotIn('build',service);self.assertEqual(service['image'],'pgxio:old')

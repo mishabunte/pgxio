@@ -28,7 +28,7 @@ def jobs(args):
                     for repetition in range(1,args.repetitions+1):
                         result.append(dict(profile=profile, target='postgrest' if native else 'pgxio',
                             pgxio_image='' if native else args.baseline_image if profile=='baseline' else args.image,
-                            module_options=options, nginx_profile=nginx, database_delay_ms=delay, cpus=args.cpus, workers=args.workers or args.cpus,
+                            module_options=options, database_tls=getattr(args, 'database_tls', 'verify-full'), nginx_profile=nginx, database_delay_ms=delay, cpus=args.cpus, workers=args.workers or args.cpus,
                             auth_mode='jwt',jwt_cache='default' if profile=='postgrest-cached' else 'off',auth_fixture='public',
                             workload=workload,rate=0,sockets=0,subscriptions=1,active_tenants=10,probe_rate=1,realtime_mode='both',
                             engine='wrk',connections=connections,threads=2 if connections>1 and connections%2==0 else 1,

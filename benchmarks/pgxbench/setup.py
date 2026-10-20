@@ -1,4 +1,6 @@
+import re
 import json
+import sys
 import os
 from pathlib import Path
 import secrets
@@ -10,6 +12,8 @@ from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode, unquote
 
 from .common import ROOT, REPO, TARGETS, command, compose, dump, encode, load_settings
 from .fixtures import contract, initialization, seed_sql
+sys.path.insert(0, str(REPO))
+from scripts.nginx_config import render as render_nginx, schemas
 
 # Explicit release pins; `lock` records pulled immutable image IDs/digests too.
 VERSIONS = {"postgres": "postgres:17.11-bookworm", "postgrest": "postgrest/postgrest:v14.17",
@@ -42,7 +46,7 @@ def prepare(workdir):
     # Disposable local TLS key, readable by each container's unprivileged UID.
     # The JWT SIGNING key stays outside the mounted runtime directory, mode 0600.
     (runtime / "tls-key.pem").chmod(0o644)
-    settings = {"versions": VERSIONS, "admin_password": secrets.token_hex(32),
+    settings = {"versions": VERSIONS, "volume_prefix": "pgxbench-" + secrets.token_hex(6), "admin_password": secrets.token_hex(32),
                 "web_password": secrets.token_hex(32), "realtime_secret": secrets.token_hex(32),
                 "secret_key_base": secrets.token_hex(64), "target": "pgxio", "cpus": 1,
                 "workers": 1, "pool_mode": "fixed", "pool_total": 8, "pool_per_worker": 8,
@@ -61,7 +65,7 @@ def nginx_config(workers, sockets, baseline=False):
     text = (REPO / "deploy" / "nginx.conf").read_text()
     text = text.replace("worker_processes 1;", f"worker_processes {workers};")
     text = text.replace("worker_connections 4096", f"worker_connections {max(4096, sockets + 2048)}")
-    text = text.replace("/etc/pgxio/pgxio.json", "/bench/pgxio.json")
+    text = text.replace("include /etc/pgxio/pgxio.conf;", "pgxio_config /bench/pgxio.json;" if baseline else "include /bench/pgxio.conf;")
     text = text.replace("listen 8080;", "listen 8080;\n        listen 8443 ssl;\n"
                         "        ssl_certificate /bench/tls-cert.pem;\n"
                         "        ssl_certificate_key /bench/tls-key.pem;\n"
@@ -109,6 +113,10 @@ def render(workdir, updates):
     if settings["frontend"] not in ("http", "tls"):
         raise ValueError("frontend must be http or tls")
     frontend_tls = settings["frontend"] == "tls"
+    settings.setdefault('database_tls', 'verify-full')
+    if settings['database_tls'] not in ('verify-full', 'disable'):
+        raise ValueError('database_tls must be verify-full or disable')
+    database_encrypted = settings['database_tls'] == 'verify-full'
     settings.setdefault('auth_mode', 'jwt')
     settings.setdefault('auth_fixture', 'tenant')
     settings.setdefault('jwt_cache', 'default')
@@ -124,6 +132,8 @@ def render(workdir, updates):
         if "hostaddr" not in dict(parse_qsl(parsed.query)):
             raise ValueError("external libpq URL needs hostaddr resolved outside the pgxio worker")
         settings.update(external_database=True, external_database_url=value)
+    if not database_encrypted and settings.get('external_database'):
+        raise ValueError('database_tls=disable is only supported for the isolated local database')
     target = settings["target"]
     if target not in TARGETS:
         raise ValueError("unknown target")
@@ -172,26 +182,43 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
                  f"ALTER ROLE supabase_admin PASSWORD '{settings['admin_password']}';\n")
     (runtime / "init.sql").write_text(init)
     (runtime / "init.sql").chmod(0o644)
-    dump(runtime / "pgxio.json", {"contract": "/bench/contract.json", "issuer": "pgxbench",
-         "audience": "pgxbench", "development": False, "jwks_file": "/bench/jwks.json",
-         "pool_size": pool, "max_websockets": settings["max_websockets"], "origins": []})
+    module_config = {"contract": "/bench/contract-v2.json", "issuer": "pgxbench",
+         "audience": "pgxbench", "development": not database_encrypted, "jwks_file": "/bench/jwks.json",
+         "pool_size": pool, "max_websockets": settings["max_websockets"], "origins": []}
     module_options = settings.get('module_options', {})
-    allowed_options = {'db_prepared_statements','db_pipeline','pool_acquisition_timeout_ms','pool_queue_limit','jwt_cache_max_entries','jwt_cache_max_bytes'}
+    allowed_options = {'libpq_buf','validate_rest_input','validate_output','db_prepared_statements','db_pipeline','pool_acquisition_timeout_ms','pool_queue_limit','jwt_cache_max_entries','jwt_cache_max_bytes'}
     if not isinstance(module_options, dict) or set(module_options) - allowed_options:
         raise ValueError('unsupported pgxio module options')
-    if module_options:
-        module_config = json.loads((runtime / 'pgxio.json').read_text())
-        module_config.update(module_options)
-        dump(runtime / 'pgxio.json', module_config)
+    if 'libpq_buf' in module_options and module_options['libpq_buf'] not in ('copy','borrowed','auto'):
+        raise ValueError('libpq_buf must be copy, borrowed or auto')
+    module_config.update(module_options)
     auth_build = settings['auth_fixture'] == 'public' and target == 'pgxio'
-    if auth_build:
-        module_config = json.loads((runtime / 'pgxio.json').read_text())
-        module_config['benchmark_no_jwt'] = settings['auth_mode'] == 'none'
+    if auth_build and settings['auth_mode'] == 'none':
+        module_config['benchmark_no_jwt'] = True
+    config_format = settings.get('config_format', 'auto')
+    if config_format == 'auto':
+        config_format = 'nginx-v1'
+        if target == 'pgxio' and settings.get('pgxio_image'):
+            image = json.loads(command(['docker', 'image', 'inspect', settings['pgxio_image']]))[0]
+            config_format = (image.get('Config', {}).get('Labels') or {}).get('io.pgxio.config-format', 'legacy-json')
+    if config_format not in ('legacy-json', 'nginx-v1'):
+        raise ValueError('unsupported pgxio config format')
+    settings['effective_config_format'] = config_format
+    if config_format == 'legacy-json':
+        if 'validate_output' in module_config:
+            raise ValueError('legacy images do not support optional output validation')
+        module_config['contract'] = '/bench/contract.json'
         dump(runtime / 'pgxio.json', module_config)
+    else:
+        module_config.setdefault('libpq_buf', 'copy')
+        if settings.get('contract_enabled', True) is False:
+            module_config.pop('contract')
+        dump(runtime / 'contract-v2.json', schemas(contract()))
+        (runtime / 'pgxio.conf').write_text(render_nginx(module_config, contract()))
     nginx_profile = settings.get('nginx_profile', 'baseline')
     if nginx_profile not in ('baseline','keepalive-10000','reuseport'):
         raise ValueError('unknown Nginx experiment profile')
-    nginx = nginx_config(workers, settings["max_websockets"])
+    nginx = nginx_config(workers, settings["max_websockets"], baseline=config_format == "legacy-json")
     if nginx_profile == 'keepalive-10000':
         nginx = nginx.replace('    keepalive_timeout 30s;', '    keepalive_timeout 30s;\n    keepalive_requests 10000;')
     elif nginx_profile == 'reuseport':
@@ -231,6 +258,12 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
         database_url = settings["external_database_url"]
     reference_url = (f"postgresql://web:{settings['web_password']}@172.29.88.2:5432/pgxbench"
                      "?sslmode=verify-full&sslrootcert=/bench/database-ca.pem")
+    if not database_encrypted:
+        database_url = (f"postgresql://web:{settings['web_password']}@postgres/pgxbench"
+                        "?hostaddr=172.29.88.2&sslmode=disable")
+        reference_url = (f"postgresql://web:{settings['web_password']}@172.29.88.2:5432/pgxbench"
+                         "?sslmode=disable")
+        db['command'] += ['-c', 'ssl=off']
     if settings["external_database"]:
         parsed = urlsplit(database_url)
         reference_url = urlunsplit(parsed._replace(query=urlencode([(k,v) for k,v in parse_qsl(parsed.query) if k != "hostaddr"])))
@@ -253,6 +286,9 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
            "WORKERS": str(workers), "GOMAXPROCS": str(cpus),
            "MAX_WEBSOCKETS": str(settings["max_websockets"] if target != "go" else settings["max_websockets"] * workers),
            "FRONTEND_TLS": "1" if frontend_tls else "0"}
+    if not database_encrypted:
+        # Development mode permits plaintext libpq; measured tokens still use RS256/JWKS.
+        env['PGXIO_DEV_SECRET'] = settings['realtime_secret']
 
     def api(extra, name):
         value = {"environment": dict(env), "volumes": [f"{runtime}:/bench:ro"],
@@ -326,6 +362,11 @@ exec /usr/local/bin/docker-entrypoint.sh "$@"
     document = {"name": "pgxbench", "services": services,
                 "networks": {"bench": {"ipam": {"config": [{"subnet": "172.29.88.0/24"}]}}},
                 "volumes": {"db-standard": {}, "db-supabase": {}}}
+    if settings.get("volume_prefix"):
+        prefix = settings["volume_prefix"]
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", prefix):
+            raise ValueError("invalid benchmark volume prefix")
+        document["volumes"] = {key: {"name": prefix + "-" + key} for key in document["volumes"]}
     if settings["external_database"]:
         services.pop("postgres")
         if target == "supabase":
@@ -388,7 +429,12 @@ def lock(workdir):
         image = json.loads(command(["docker", "image", "inspect", info["Image"]]))[0]
         records.append({"service": info["Config"]["Labels"].get("com.docker.compose.service"),
                         "image_id": info["Image"], "digests": image.get("RepoDigests", []),
-                        "architecture": image.get("Architecture"), "os": image.get("Os")})
+                        "architecture": image.get("Architecture"), "os": image.get("Os"),
+                        "output_validation_default": (image.get("Config", {}).get("Labels") or {}).get("io.pgxio.output-validation", "schema"),
+                        "config_format": (image.get("Config", {}).get("Labels") or {}).get("io.pgxio.config-format", "legacy-json"),
+                        "rest_input_validation_default": (image.get('Config', {}).get('Labels') or {}).get('io.pgxio.rest-input-validation', 'schema'),
+                        "borrowed_libpq": (image.get('Config', {}).get('Labels') or {}).get('io.pgxio.borrowed-libpq', '0'),
+                        "libpq_base": (image.get('Config', {}).get('Labels') or {}).get('io.pgxio.libpq-base')})
     result = {"images": records, "requested_versions": settings["versions"]}
     dump(Path(workdir) / "images.lock.json", result)
     return result

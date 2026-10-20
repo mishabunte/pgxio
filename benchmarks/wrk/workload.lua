@@ -26,6 +26,12 @@ function init(args)
                 body=body:sub(1,-2)..(body=='{}' and '' or ',')..'"tenant":"'..cfg.subjects[tenant]..'"}'
                 actual_operation=operation:gsub('bench_','bench_public_')
             end
+            if (cfg.request_bytes or 0)>0 then
+                local remaining=cfg.request_bytes-#body-13
+                assert(remaining>=0, 'requested input size too small')
+                body=body:sub(1,-2)..',"padding":"'..string.rep('x',remaining)..'"}'
+                assert(#body==cfg.request_bytes, 'input size mismatch')
+            end
             if cfg.native then body='{"input":'..body..'}' end
             requests[tenant][operation]=wrk.format('POST',cfg.prefix..actual_operation,headers,body)
         end

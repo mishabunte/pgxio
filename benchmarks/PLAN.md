@@ -103,3 +103,31 @@ The runtime now reuses recovered sessions after drained rollback, prepares manif
 Use `perf-compare` for immutable baseline/stage images and cached/uncached PostgREST, with one/eight/32 connections, selectable workloads, repetitions and CPU/worker counts. Nginx keep-alive/reuseport profiles remain separate experiments. Linux-host database-delay experiments are reapplied per trial. Reports group by exact configuration/image identity. See README.md for all commands and limits.
 
 The first shared-host run completed 24 ten-second stage trials (one repetition per case); four intentional immediate-rejection overload cases failed the load SLO. Separate two-worker Nginx/write/mixed checks were functional only. These checks do not establish minimum RAM, CPU efficiency, or a production ranking. Longer repeated trials and dedicated Linux resource evidence remain required.
+
+## Next experiment: balanced CPU saturation
+
+The primary goal is near-100% API CPU for both pgxio and PostgREST, measured
+separately with PostgreSQL headroom. Provision enough identical DB capacity for
+both APIs, retain the matched workload, then sweep concurrency and API workers
+to identify API-bound throughput. Verify database CPU/waits, connection-pool
+waiting, and generator capacity rather than inferring API saturation from RPS.
+Keep an equal-API-CPU comparison and report each product's saturation point.
+
+As a separate capacity experiment, find a configuration for each product
+where its API and PostgreSQL are both near CPU saturation. Sweep database CPU
+allocations first to remove the observed database ceiling, then API workers/CPU
+allocations and offered load/concurrency. Start with the same page fixture and
+eight-query-connection pool; change pool size only as a separately labeled sweep.
+Use disjoint exclusive API/DB CPUs and a separate load-generator host. Keep RAM
+ample and collect API/DB CPU, throttling, memory, throughput, latency and errors
+for every point. Define near saturation as sustained 90–100% of the assigned CPU
+capacity over the measured interval, while retaining latency/error SLO results.
+CPU percentages above one core must be normalized by allocated capacity.
+
+The required API:DB CPU ratio may differ for pgxio and PostgREST. Publish those
+ratios and total CPU budgets explicitly; individually balanced configurations
+are capacity experiments, separate from equal-resource comparisons. Include the
+direct pgbench baseline to identify database ceilings. Do not count generator
+starvation, quota throttling, error-only CPU load, or unrelated VM processes as
+useful saturation. If both cannot approach saturation under the matched workload,
+report the limiting resource rather than changing the workload to force a result.

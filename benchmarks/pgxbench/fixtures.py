@@ -13,10 +13,11 @@ def contract():
     endpoints = []
     for name, read_only, output in (("bench_one", True, row), ("bench_page", True, page),
                                     ("bench_write", False, row)):
-        properties = {} if name == "bench_page" else {"id": integer}
+        properties = {"padding": {"type":"string", "maxLength":65536}}
+        if name != "bench_page": properties["id"] = integer
         endpoints.append({"name": name, "function": "web." + name, "read_only": read_only,
                           "input": {"type": "object", "additionalProperties": False,
-                                    "required": list(properties), "properties": properties},
+                                    "required": [] if name == "bench_page" else ["id"], "properties": properties},
                           "output": output})
     for original in list(endpoints):
         public = copy.deepcopy(original)

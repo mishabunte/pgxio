@@ -16,13 +16,16 @@ def stats(workdir, output):
 SELECT jsonb_build_object(
  'database', (SELECT to_jsonb(d) FROM pg_stat_database d WHERE datname=current_database()),
  'connections', (SELECT coalesce(jsonb_agg(jsonb_build_object('user',usename,'application',application_name,
-     'state',state,'wait_event_type',wait_event_type,'wait_event',wait_event)), '[]'::jsonb)
-     FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()),
+     'state',state,'wait_event_type',wait_event_type,'wait_event',wait_event,
+     'ssl',s.ssl,'ssl_version',s.version,'ssl_cipher',s.cipher)), '[]'::jsonb)
+     FROM pg_stat_activity a LEFT JOIN pg_stat_ssl s USING (pid)
+     WHERE datname=current_database() AND a.pid<>pg_backend_pid()),
  'functions', (SELECT coalesce(jsonb_agg(to_jsonb(f)), '[]'::jsonb)
      FROM pg_stat_user_functions f WHERE schemaname='web'),
  'settings', jsonb_build_object('server_version',current_setting('server_version'),
      'shared_buffers',current_setting('shared_buffers'),'work_mem',current_setting('work_mem'),
-     'max_connections',current_setting('max_connections'),'track_functions',current_setting('track_functions')));
+     'max_connections',current_setting('max_connections'),'track_functions',current_setting('track_functions'),
+     'ssl',current_setting('ssl')));
 """
     result = {"kind": "database_observation", "timestamp": time.time(),
               "configuration": public_settings(load_settings(workdir)), "postgres": json.loads(sql(workdir, statement)),
