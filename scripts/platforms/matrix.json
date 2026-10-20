@@ -1,0 +1,15 @@
+{
+  "rust": "1.99.1",
+  "nginx": "1.30.5",
+  "vm_runner": "ghcr.io/anyvm-org/anyvm@sha256:57b136734c84c23c7ef5395ce593c60b15912382e03e5df58335bc74c21e1685",
+  "freebsd_builder": "2.2.8",
+  "oses": {
+    "debian13": {"image": "debian:13-slim"},
+    "ubuntu24.04": {"image": "ubuntu:24.04"},
+    "ubuntu26.04": {"image": "ubuntu:26.04"},
+    "freebsd14.5": {"release": "14.5"},
+    "freebsd15.1": {"release": "15.1"}
+  },
+  "architectures": ["arm64", "amd64"],
+  "variants": ["system", "borrowed"]
+}
