@@ -11,24 +11,72 @@ extern void pgx_cleanup(uint64_t id);
 extern void pgx_socket(uint64_t id);
 extern void pgx_database(size_t id);
 extern void pgx_tick(void);
-extern int pgx_init(const unsigned char *path, size_t len);
+extern int pgx_init(const void *settings);
+extern void *pgx_config_new(const void *directives, size_t count);
+extern void pgx_config_free(void *settings);
 extern void pgx_exit(void);
 
-typedef struct { ngx_str_t path; } pgx_conf;
+typedef struct { ngx_str_t name; size_t count; ngx_str_t *args; } pgx_directive;
+typedef struct { ngx_array_t directives; void *settings; int enabled; } pgx_conf;
 typedef struct { uint64_t id; } pgx_request;
 typedef struct { ngx_connection_t *c; size_t id; } pgx_watch;
 static ngx_event_t tick;
 
-void *pgx_create_conf(ngx_conf_t *cf) { return ngx_pcalloc(cf->pool, sizeof(pgx_conf)); }
+void *pgx_create_conf(ngx_conf_t *cf) {
+    pgx_conf *c = ngx_pcalloc(cf->pool, sizeof(pgx_conf));
+    if (!c || ngx_array_init(&c->directives, cf->pool, 8, sizeof(pgx_directive)) != NGX_OK) return NULL;
+    return c;
+}
+static char *pgx_setting(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+    pgx_conf *c = conf;
+    pgx_directive *d = ngx_array_push(&c->directives);
+    if (!d) return NGX_CONF_ERROR;
+    d->name = cmd->name; d->count = cf->args->nelts - 1;
+    d->args = ngx_palloc(cf->pool, d->count * sizeof(ngx_str_t));
+    if (!d->args) return NGX_CONF_ERROR;
+    ngx_memcpy(d->args, (ngx_str_t *)cf->args->elts + 1, d->count * sizeof(ngx_str_t));
+    return NGX_CONF_OK;
+}
+char *pgx_init_conf(ngx_conf_t *cf, void *conf) {
+    pgx_conf *c = conf;
+    if (!c->enabled && !c->directives.nelts) return NGX_CONF_OK;
+    c->settings = pgx_config_new(c->directives.elts, c->directives.nelts);
+    if (!c->settings) return NGX_CONF_ERROR;
+    ngx_pool_cleanup_t *cl = ngx_pool_cleanup_add(cf->pool, 0);
+    if (!cl) { pgx_config_free(c->settings); c->settings = NULL; return NGX_CONF_ERROR; }
+    cl->handler = pgx_config_free; cl->data = c->settings;
+    return NGX_CONF_OK;
+}
 static char *pgx_enable(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     (void)cmd; (void)conf;
     ngx_http_core_loc_conf_t *lc = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
+    pgx_conf *c = ngx_http_conf_get_module_main_conf(cf, ngx_http_pgxio_module);
+    c->enabled = 1;
     lc->handler = pgx_start;
     return NGX_CONF_OK;
 }
+#define PGX_SETTING(name, arity) { ngx_string("pgxio_" name), NGX_HTTP_MAIN_CONF|arity, pgx_setting, NGX_HTTP_MAIN_CONF_OFFSET, 0, NULL }
 ngx_command_t pgx_commands[] = {
-    { ngx_string("pgxio_config"), NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
-      ngx_conf_set_str_slot, NGX_HTTP_MAIN_CONF_OFFSET, offsetof(pgx_conf,path), NULL },
+    PGX_SETTING("libpq_buf", NGX_CONF_TAKE1),
+    PGX_SETTING("validate_input", NGX_CONF_TAKE1),
+    PGX_SETTING("validate_output", NGX_CONF_TAKE1),
+    PGX_SETTING("benchmark_no_jwt", NGX_CONF_TAKE1),
+    PGX_SETTING("db_prepared_statements", NGX_CONF_TAKE1),
+    PGX_SETTING("db_pipeline", NGX_CONF_TAKE1),
+    PGX_SETTING("pool_acquisition_timeout_ms", NGX_CONF_TAKE1),
+    PGX_SETTING("pool_queue_limit", NGX_CONF_TAKE1),
+    PGX_SETTING("jwt_cache_max_entries", NGX_CONF_TAKE1),
+    PGX_SETTING("jwt_cache_max_bytes", NGX_CONF_TAKE1),
+    PGX_SETTING("contract", NGX_CONF_TAKE1),
+    PGX_SETTING("issuer", NGX_CONF_TAKE1),
+    PGX_SETTING("audience", NGX_CONF_TAKE1),
+    PGX_SETTING("jwks_file", NGX_CONF_TAKE1),
+    PGX_SETTING("development", NGX_CONF_TAKE1),
+    PGX_SETTING("pool_size", NGX_CONF_TAKE1),
+    PGX_SETTING("max_websockets", NGX_CONF_TAKE1),
+    PGX_SETTING("origin", NGX_CONF_TAKE1),
+    PGX_SETTING("endpoint", NGX_CONF_TAKE23),
+    PGX_SETTING("stream", NGX_CONF_TAKE2),
     { ngx_string("pgxio"), NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS, pgx_enable, 0, 0, NULL },
     ngx_null_command
 };
@@ -47,8 +95,8 @@ void pgx_schedule_tick(uint64_t delay_ms) {
 }
 ngx_int_t pgx_init_process(ngx_cycle_t *cycle) {
     pgx_conf *conf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_pgxio_module);
-    if (!conf || !conf->path.len) return NGX_OK;
-    if (pgx_init(conf->path.data, conf->path.len) != 0) return NGX_ERROR;
+    if (!conf || !conf->settings) return NGX_OK;
+    if (pgx_init(conf->settings) != 0) return NGX_ERROR;
     ngx_memzero(&tick, sizeof(tick));
     tick.handler = timer; tick.log = cycle->log; tick.cancelable = 1;
     ngx_add_timer(&tick, 1000);
@@ -91,24 +139,52 @@ const unsigned char *pgx_header(ngx_http_request_t *r, const char *name, size_t 
     }
     *len=0; return NULL;
 }
-ngx_int_t pgx_read_body(ngx_http_request_t *r) {
-    r->request_body_in_single_buf=1;
+ngx_int_t pgx_read_body(ngx_http_request_t *r, int single) {
+    r->request_body_in_single_buf=single;
     return ngx_http_read_client_request_body(r,pgx_body);
 }
 void pgx_wait_client(ngx_http_request_t *r) {
     r->read_event_handler=ngx_http_test_reading;
     ngx_handle_read_event(r->connection->read,0);
 }
+long pgx_body_length(ngx_http_request_t *r) {
+    size_t n=0;
+    if (!r->request_body) return 0;
+    for (ngx_chain_t *c=r->request_body->bufs;c;c=c->next) {
+        if (c->buf->in_file) return -1;
+        size_t len=ngx_buf_in_memory(c->buf) ? (size_t)(c->buf->last-c->buf->pos) : 0;
+        if (len>65536-n) return -2;
+        n+=len;
+    }
+    return (long)n;
+}
 long pgx_copy_body(ngx_http_request_t *r, unsigned char *dst, size_t cap) {
     size_t n=0;
     if (!r->request_body) return 0;
     for (ngx_chain_t *c=r->request_body->bufs;c;c=c->next) {
         if (c->buf->in_file) return -1;
-        size_t len=c->buf->last-c->buf->pos;
+        size_t len=ngx_buf_in_memory(c->buf) ? (size_t)(c->buf->last-c->buf->pos) : 0;
         if (len>cap-n) return -1;
-        ngx_memcpy(dst+n,c->buf->pos,len); n+=len;
+        if (len) ngx_memcpy(dst+n,c->buf->pos,len);
+        n+=len;
     }
     return (long)n;
+}
+typedef struct { const unsigned char *data; size_t len; } pgx_segment;
+long pgx_body_segments(ngx_http_request_t *r, pgx_segment *dst, size_t cap) {
+    size_t count=0;
+    if (!r->request_body) return 0;
+    for (ngx_chain_t *c=r->request_body->bufs;c;c=c->next) {
+        if (c->buf->in_file) return -1;
+        size_t len=ngx_buf_in_memory(c->buf) ? (size_t)(c->buf->last-c->buf->pos) : 0;
+        if (!len) continue;
+        if (dst) {
+            if (count>=cap) return -1;
+            dst[count].data=c->buf->pos; dst[count].len=len;
+        }
+        count++;
+    }
+    return (long)count;
 }
 int pgx_add_header(ngx_http_request_t *r, const char *key, const unsigned char *val, size_t len) {
     ngx_table_elt_t *h=ngx_list_push(&r->headers_out.headers);
@@ -121,6 +197,12 @@ int pgx_add_header(ngx_http_request_t *r, const char *key, const unsigned char *
     h->value.len=len; h->hash=1; return 0;
 }
 void pgx_reply(ngx_http_request_t *r, int status, const unsigned char *data, size_t len) {
+    /* Early authentication/method failures still need to consume the body before
+       Nginx can parse the next request on this keep-alive connection. */
+    if (!r->request_body) {
+        ngx_int_t discard = ngx_http_discard_request_body(r);
+        if (discard != NGX_OK) { ngx_http_finalize_request(r, discard); return; }
+    }
     ngx_buf_t *b=ngx_create_temp_buf(r->pool,len);
     if (!b) { ngx_http_finalize_request(r,NGX_HTTP_INTERNAL_SERVER_ERROR); return; }
     ngx_memcpy(b->pos,data,len); b->last=b->pos+len; b->last_buf=1;

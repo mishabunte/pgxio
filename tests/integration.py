@@ -8,6 +8,7 @@ import ssl
 import time
 import subprocess
 import unittest
+import sys
 from pathlib import Path
 import httpx
 from websockets.asyncio.client import connect as ws_connect
@@ -20,6 +21,8 @@ COMPOSE = ["docker", "compose"]
 if os.environ.get("PGXIO_TEST_COMPOSE_FILE"):
     COMPOSE += ["--project-name", os.environ.get("PGXIO_TEST_PROJECT", "pgxio-perf-test"),
                 "--file", os.environ["PGXIO_TEST_COMPOSE_FILE"]]
+if os.environ.get('PGXIO_TEST_BACKEND') == 'native':
+    COMPOSE = [sys.executable, str(ROOT / 'tests/native-operator.py')]
 WS = URL.replace("https://", "wss://").replace("http://", "ws://") + "/v1/events"
 
 def connect(url, **kwargs):
@@ -225,8 +228,10 @@ class Integration(unittest.IsolatedAsyncioTestCase):
               INSERT INTO pgxio_private.tasks(subject,title) VALUES ('alice','must rollback');
               RETURN '{"invalid":true}'::jsonb;
             END $$;""")
-            self.assertEqual((await self.call("create_task",{"title":"anything"})).status_code,503)
-            self.assertEqual(sql("SELECT count(*) FROM pgxio_private.tasks;"),before)
+            checking = os.environ.get("PGXIO_TEST_OUTPUT_VALIDATION", "off") == "schema"
+            response = await self.call("create_task", {"title":"anything"})
+            self.assertEqual(response.status_code, 503 if checking else 200)
+            self.assertEqual(int(sql("SELECT count(*) FROM pgxio_private.tasks;")), int(before) + (0 if checking else 1))
         finally:
             sql(original)
 

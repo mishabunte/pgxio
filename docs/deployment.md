@@ -30,17 +30,17 @@ The topology is browser/Vercel → public HTTPS/WSS pgxio → PostgreSQL over ve
 
 5. Set production configuration like:
 
-   ```json
-   {
-     "contract":"/etc/pgxio/contract.json",
-     "issuer":"https://PROJECT_REF.supabase.co/auth/v1",
-     "audience":"authenticated",
-     "jwks_file":"/etc/pgxio/jwks.json",
-     "development":false,
-     "origins":["https://app.example.com"],
-     "pool_size":4,
-     "max_websockets":1024
-   }
+   ```nginx
+   pgxio_issuer https://PROJECT_REF.supabase.co/auth/v1;
+   pgxio_audience authenticated;
+   pgxio_jwks_file /etc/pgxio/jwks.json;
+   pgxio_development off;
+   pgxio_origin https://app.example.com;
+   pgxio_pool_size 4;
+   pgxio_max_websockets 1024;
+   pgxio_endpoint list_tasks web.list_tasks read_only;
+   pgxio_endpoint create_task web.create_task;
+   pgxio_stream tasks web.authorize_tasks;
    ```
 
 Use asymmetric Supabase signing keys supported by the module (RS256 or ES256). Legacy HS256 projects require migrating their signing configuration; the alpha deliberately has no production shared-secret switch. The example SQL compares text subjects; adapt provisioning to Supabase Auth UUID subjects and your authorization model.
@@ -73,3 +73,24 @@ The CLI uses `psql -X`, ON_ERROR_STOP, and a single transaction. SQL requiring n
 ## Agent workflow
 
 An agent works locally with the schema, contract, generated types, and tests: initialize → write SQL and schemas → generate → check → test. Operator credentials stay in the development/migration context; generated clients contain only HTTPS endpoint types. `bin/pgxio check` provides a small readiness response suitable for scripts. Production deployment credentials and network changes remain an operator concern; this is not an embedded production agent with administrative access.
+
+## REST input migration
+
+`pgxio_validate_input` defaults to `off`. Set it to `on` to retain module input-schema enforcement; both modes forward the original bytes as a bound JSONB parameter. Move required-field/type/range/unknown-property checks into your SQL functions before selecting SQL-owned validation. Updated example functions reject invalid input with SQLSTATE `PT400`. Existing databases need a migration replacing those function definitions; restarting the image does not apply the bootstrap SQL to an existing volume.
+
+Use UTF-8 database connections (the module requests and verifies `client_encoding=UTF8`). Keep `client_max_body_size 64k` and the supplied `client_body_buffer_size 128k`, which leaves space for ordinary chunk framing. Bodies spooled to temporary files are rejected rather than read synchronously in the event loop; unusually fragmented/chunk-extended input or a smaller custom Nginx body buffer can reach that rejection path. Request-size and schema checks do not establish a total client memory limit.
+
+Optional REST schema checks retain the existing serde_json/jsonschema numeric precision limits. Enforce exact high-precision numeric rules in SQL; forwarding preserves the original numeric text in either mode.
+
+
+## Configuration migration
+
+This release removes `pgxio_config` and `pgxio.json`. Replace the old directive with `include /etc/pgxio/pgxio.conf;` inside `http {}`, or inline the directives. Use `nginx -t` before reloading. Invalid directive values or contracts reject reload without replacing active workers. JWKS loading, environment credentials, and database readiness are still checked by workers; `nginx -t` does not prove runtime authentication or database readiness.
+
+Prefix old settings with `pgxio_`, use `on`/`off` for booleans, and replace the origins array with repeated `pgxio_origin` directives. Rename `validate_rest_input` to `pgxio_validate_input`; it now also controls subscription parameter schemas. Keep connection/cache limits and units unchanged. `issuer` and `audience` are required. `jwks_file` remains a path to signing keys. Native configuration values are parsed once, not evaluated per request.
+
+Move each endpoint's name/function/read_only mapping into `pgxio_endpoint name web.function [read_only];`. Move each stream's name/authorize mapping into `pgxio_stream name web.authorize;`. Convert the optional contract to version 2, removing `function`, `read_only`, and `authorize` fields. Retain endpoint `name`, `input`, `output` and stream `name`, `input`. A contract cannot publish routes. Unknown entries, duplicate names, invalid schemas, and references fail configuration validation. When validation is enabled, every affected declaration needs a schema entry. An empty schema object explicitly permits any JSON value.
+
+Both `pgxio_validate_input` and `pgxio_validate_output` default to `off`. To retain previous output validation, load the contract and enable `pgxio_validate_output on;`. Enable input validation as well to retain subscription schema checks. `/openapi.json` lists configured routes even without a contract, using unrestricted JSON schemas; loading a contract enriches this document without enabling checks.
+
+Provide the connection string through the service/container environment and preserve it with `env PGXIO_DATABASE_URL;` at Nginx's top level, outside `http {}`. Nginx does not perform shell-style environment substitution. The module reads the variable at worker initialization. Changing a service's environment requires restarting/recreating the service; a configuration reload does not import a new parent environment. libpq also supports a `passfile` connection option or `PGPASSFILE` (preserve that variable with `env PGPASSFILE;`); password files must have restrictive permissions and be readable by the worker.

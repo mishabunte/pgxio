@@ -1,9 +1,0 @@
-{
-  "contract": "/etc/pgxio/contract.json",
-  "issuer": "pgxio-dev",
-  "audience": "pgxio",
-  "development": true,
-  "origins": ["http://localhost:3000"],
-  "pool_size": 4,
-  "max_websockets": 1024
-}

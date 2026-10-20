@@ -20,7 +20,7 @@ jobs:
       - name: Install test clients
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install './sdk/python[django]'
+          .venv/bin/pip install './sdk/python[django]' 'httpx[http2]==0.28.1'
           npm ci --prefix sdk/typescript
       - name: Check generated types and clients
         run: |
@@ -40,6 +40,15 @@ jobs:
           for profile in sequential unprepared failfast; do
             .venv/bin/python tests/run-isolated.py --image pgxio:dev --suite performance --profile "$profile" --output "artifacts/perf-validation/$profile"
           done
+      - name: REST input forwarding and optional schema checks
+        run: |
+          .venv/bin/python tests/run-isolated.py --image pgxio:dev --suite input --production --output artifacts/input-validation/raw
+          .venv/bin/python tests/run-isolated.py --image pgxio:dev --suite input --production --input-validation schema --output artifacts/input-validation/schema
+      - name: Native configuration and exact response bytes
+        run: |
+          .venv/bin/python tests/run-isolated.py --image pgxio:dev --suite configuration --production --output artifacts/native-config/configuration
+          .venv/bin/python tests/run-isolated.py --image pgxio:dev --suite output --production --output artifacts/native-config/raw
+          .venv/bin/python tests/run-isolated.py --image pgxio:dev --suite all --production --input-validation schema --output-validation schema --output artifacts/native-config/schema
       - name: Benchmark tooling regressions
         run: .venv/bin/python -m unittest discover -s benchmarks/tests -q
       - name: Runtime logs

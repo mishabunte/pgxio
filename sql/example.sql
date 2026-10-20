@@ -27,13 +27,18 @@ GRANT SELECT ON pgxio_private.accounts TO pgxio_executor;
 GRANT SELECT, INSERT, UPDATE ON pgxio_private.tasks TO pgxio_executor;
 
 CREATE FUNCTION web.list_tasks(input jsonb) RETURNS jsonb
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pgxio_private
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = pg_catalog, pgxio_private
 AS $$
-    SELECT jsonb_build_object('tasks',coalesce(jsonb_agg(jsonb_build_object('id',t.id,'title',t.title,'done',t.done) ORDER BY t.id),'[]'::jsonb))
+BEGIN
+    IF input IS DISTINCT FROM '{}'::jsonb THEN
+        RAISE EXCEPTION USING ERRCODE='PT400', MESSAGE='invalid input';
+    END IF;
+    RETURN (SELECT jsonb_build_object('tasks',coalesce(jsonb_agg(jsonb_build_object('id',t.id,'title',t.title,'done',t.done) ORDER BY t.id),'[]'::jsonb))
     FROM (SELECT t.* FROM pgxio_private.tasks t
       JOIN pgxio_private.accounts a USING (subject)
       WHERE a.enabled AND t.subject=current_setting('request.jwt.claims',true)::jsonb->>'sub'
-      ORDER BY t.id LIMIT 100) t
+      ORDER BY t.id LIMIT 100) t);
+END
 $$;
 
 CREATE FUNCTION web.create_task(input jsonb) RETURNS jsonb
@@ -41,6 +46,12 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, pgxio_private
 AS $$
 DECLARE account pgxio_private.accounts; task pgxio_private.tasks;
 BEGIN
+    IF jsonb_typeof(input) IS DISTINCT FROM 'object'
+       OR jsonb_typeof(input->'title') IS DISTINCT FROM 'string'
+       OR length(input->>'title') NOT BETWEEN 1 AND 500
+       OR input - 'title' <> '{}'::jsonb THEN
+        RAISE EXCEPTION USING ERRCODE='PT400', MESSAGE='invalid input';
+    END IF;
     SELECT * INTO STRICT account FROM pgxio_private.accounts
       WHERE enabled AND subject=current_setting('request.jwt.claims',true)::jsonb->>'sub';
     INSERT INTO pgxio_private.tasks(subject,title) VALUES(account.subject,input->>'title') RETURNING * INTO task;

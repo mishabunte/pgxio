@@ -1,6 +1,8 @@
 //! Nonblocking libpq sessions. One transaction per connection; results must be
 //! drained and the session idle before another caller can acquire it.
 use crate::ffi;
+use crate::buffer::BufferMode;
+use crate::input::Input;
 use pq_sys::*;
 use serde_json::{json, Value};
 use std::{
@@ -15,14 +17,33 @@ pub struct Job {
     pub client: u64,
     pub subscription: Option<String>,
     pub function: String,
-    pub input: Value,
+    pub input: Option<Input>,
     pub subject: String,
     pub expires: u64,
     pub read_only: bool,
     pub output: Option<Arc<jsonschema::Validator>>,
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Error {
+    Database,
+    InvalidInput,
+}
+impl Error {
+    pub fn from_sqlstate(code: &[u8]) -> Self {
+        match code {
+            b"22P02" | b"22021" | b"22P05" | b"22003" | b"PT400" => Self::InvalidInput,
+            _ => Self::Database,
+        }
+    }
+}
+pub enum Output {
+    Http(Vec<u8>),
+    Internal(Value),
+}
 pub enum Event {
-    Done(Job, Result<Value, ()>),
+    Transport(usize, bool),
+    AutoCopied,
+    Done(Job, Result<Output, Error>),
     Notify(String),
     ListenerLost,
 }
@@ -52,24 +73,22 @@ struct Command {
     kind: Kind,
     sql: CString,
     name: Option<CString>,
-    params: Vec<CString>,
+    params: Vec<Input>,
 }
 impl Command {
-    fn query(kind: Kind, sql: &str, params: &[String]) -> Self {
+    fn query(kind: Kind, sql: &str, params: Vec<Input>) -> Self {
         Self {
             kind,
             sql: CString::new(sql).unwrap(),
             name: None,
-            params: params
-                .iter()
-                .map(|p| CString::new(p.as_str()).unwrap())
-                .collect(),
+            params,
         }
     }
 }
 const SETTINGS: &str = "SELECT jsonb_build_object('claims',set_config('request.jwt.claims',$1,true),'timeout',set_config('statement_timeout','4000',true),'lock',set_config('lock_timeout','1000',true),'path',set_config('search_path','pg_catalog,web',true))";
 const AUDIT: &str = "SELECT (current_user='web' AND session_user='web' AND NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication AND NOT r.rolbypassrls AND NOT has_schema_privilege('web','CREATE') AND NOT EXISTS (SELECT 1 FROM pg_auth_members WHERE member=r.oid))::text FROM pg_roles r WHERE rolname=current_user";
 pub struct Connection {
+    buffer_mode: BufferMode,
     raw: *mut PGconn,
     watcher: *mut c_void,
     fd: i32,
@@ -78,10 +97,15 @@ pub struct Connection {
     state: State,
     job: Option<Job>,
     value: Option<Value>,
+    http_output: Option<Vec<u8>>,
     failed: bool,
+    job_error: Error,
     deadline: Instant,
     retry: Duration,
     commands: VecDeque<Command>,
+    // A command can finish with an early parse/pipeline error before PQflush
+    // consumes its bytes. These leases must outlive command/result bookkeeping.
+    borrowed_inputs: Vec<Input>,
     response_seen: bool,
     pipeline: bool,
     sync_seen: bool,
@@ -139,8 +163,9 @@ pub fn validate_url(url: &str, development: bool) -> Result<CString, String> {
 }
 
 impl Connection {
-    pub fn new(id: usize, listener: bool, prepared: bool, pipeline: bool) -> Self {
+    pub fn new(id: usize, listener: bool, prepared: bool, pipeline: bool, buffer_mode: BufferMode) -> Self {
         Self {
+            buffer_mode,
             raw: ptr::null_mut(),
             watcher: ptr::null_mut(),
             fd: -1,
@@ -149,10 +174,13 @@ impl Connection {
             state: State::Offline,
             job: None,
             value: None,
+            http_output: None,
             failed: false,
+            job_error: Error::Database,
             deadline: Instant::now(),
             retry: Duration::from_secs(1),
             commands: VecDeque::new(),
+            borrowed_inputs: Vec::new(),
             response_seen: false,
             pipeline: false,
             sync_seen: false,
@@ -168,7 +196,13 @@ impl Connection {
         }
     }
     pub fn idle(&self) -> bool {
-        self.state == State::Idle
+        self.state == State::Idle && self.borrowed_inputs.is_empty()
+    }
+    fn plaintext(&self) -> bool {
+        unsafe {
+            !self.raw.is_null() && PQstatus(self.raw) == ConnStatusType::CONNECTION_OK
+                && PQsslInUse(self.raw) == 0 && PQgssEncInUse(self.raw) == 0
+        }
     }
     pub fn usable(&self) -> bool {
         !self.listener && matches!(self.state, State::Idle | State::Executing | State::Commit)
@@ -176,8 +210,12 @@ impl Connection {
     pub fn listening(&self) -> bool {
         self.state == State::Listening
     }
-    pub fn client(&self) -> Option<u64> {
-        self.job.as_ref().map(|j| j.client)
+    pub fn references(&self, client: u64) -> bool {
+        self.job.as_ref().is_some_and(|j| j.client == client)
+            || self
+                .borrowed_inputs
+                .iter()
+                .any(|input| matches!(input, Input::Borrowed(body) if body.client == client))
     }
     pub fn next_deadline(&self) -> Option<Instant> {
         (!matches!(self.state, State::Idle | State::Listening)).then_some(self.deadline)
@@ -187,7 +225,11 @@ impl Connection {
             return vec![];
         }
         if self.state == State::Offline {
-            self.raw = unsafe { PQconnectStart(url.as_ptr()) };
+            self.raw = unsafe {
+                let keywords = [c"dbname".as_ptr(), c"client_encoding".as_ptr(), ptr::null()];
+                let values = [url.as_ptr(), c"UTF8".as_ptr(), ptr::null()];
+                PQconnectStartParams(keywords.as_ptr(), values.as_ptr(), 1)
+            };
             if self.raw.is_null() {
                 self.deadline = Instant::now() + self.retry;
                 return vec![];
@@ -214,11 +256,12 @@ impl Connection {
     }
     pub fn disconnect(&mut self) -> Vec<Event> {
         let mut events = vec![];
+        if !self.listener { events.push(Event::Transport(self.id, false)); }
         if self.listener && self.state != State::Offline {
             events.push(Event::ListenerLost);
         }
         if let Some(job) = self.job.take() {
-            events.push(Event::Done(job, Err(())));
+            events.push(Event::Done(job, Err(Error::Database)));
         }
         self.clear_cancel();
         unsafe {
@@ -232,7 +275,9 @@ impl Connection {
         }
         self.state = State::Offline;
         self.value = None;
+        self.http_output = None;
         self.commands.clear();
+        self.borrowed_inputs.clear();
         self.prepared.clear();
         self.pipeline = false;
         self.cancelled = false;
@@ -253,8 +298,23 @@ impl Connection {
         }
         !self.watcher.is_null() && ffi::pgx_watch_arm(self.watcher, read.into(), write.into()) == 0
     }
-    unsafe fn dispatch(raw: *mut PGconn, command: &Command) -> bool {
-        let params: Vec<_> = command.params.iter().map(|p| p.as_ptr()).collect();
+    unsafe fn dispatch(raw: *mut PGconn, command: &mut Command, held: &mut Vec<Input>) -> bool {
+        #[cfg(not(feature = "borrowed-libpq"))]
+        let _ = held;
+        #[cfg(feature = "borrowed-libpq")]
+        if command.params.iter().any(Input::borrowed) {
+            let submitted =
+                crate::borrowed::send(raw, &command.sql, command.name.as_deref(), &command.params);
+            if submitted {
+                for param in &mut command.params {
+                    // The borrowed API retains every payload, including owned
+                    // parameters mixed with Nginx segments in the same call.
+                    held.push(std::mem::replace(param, Input::Submitted));
+                }
+            }
+            return submitted;
+        }
+        let params: Vec<_> = command.params.iter().map(|p| p.owned().as_ptr()).collect();
         match &command.kind {
             Kind::Prepare(_, name) => {
                 let name = CString::new(name.as_str()).unwrap();
@@ -286,6 +346,13 @@ impl Connection {
             }
         }
     }
+    unsafe fn flush(&mut self) -> i32 {
+        let result = PQflush(self.raw);
+        if result == 0 {
+            self.borrowed_inputs.clear();
+        }
+        result
+    }
     fn batch(&mut self, commands: VecDeque<Command>, pipeline: bool) -> bool {
         self.commands = commands;
         self.response_seen = false;
@@ -297,24 +364,28 @@ impl Connection {
                 if PQenterPipelineMode(self.raw) != 1 {
                     return false;
                 }
-                for command in &self.commands {
-                    if !Self::dispatch(self.raw, command) {
+                for command in &mut self.commands {
+                    if !Self::dispatch(self.raw, command, &mut self.borrowed_inputs) {
                         return false;
                     }
                 }
                 if PQpipelineSync(self.raw) != 1 {
                     return false;
                 }
-            } else if !Self::dispatch(self.raw, self.commands.front().unwrap()) {
+            } else if !Self::dispatch(
+                self.raw,
+                self.commands.front_mut().unwrap(),
+                &mut self.borrowed_inputs,
+            ) {
                 return false;
             }
-            let flush = PQflush(self.raw);
+            let flush = self.flush();
             flush >= 0 && self.arm(true, flush == 1)
         }
     }
     fn control(&mut self, sql: &str) -> bool {
         self.batch(
-            VecDeque::from([Command::query(Kind::Control, sql, &[])]),
+            VecDeque::from([Command::query(Kind::Control, sql, vec![])]),
             false,
         )
     }
@@ -323,7 +394,7 @@ impl Connection {
         commands: &mut VecDeque<Command>,
         key: &str,
         sql: &str,
-        input: String,
+        input: Input,
         kind: Kind,
     ) {
         let name = if self.prepare_enabled {
@@ -335,19 +406,31 @@ impl Connection {
                 commands.push_back(Command::query(
                     Kind::Prepare(key.to_owned(), name.clone()),
                     sql,
-                    &[],
+                    vec![],
                 ));
                 name
             })
         } else {
             None
         };
-        let mut command = Command::query(kind, sql, &[input]);
+        let mut command = Command::query(kind, sql, vec![input]);
         command.name = name.map(|n| CString::new(n).unwrap());
         commands.push_back(command);
     }
-    pub fn start(&mut self, job: Job) -> Vec<Event> {
+    pub fn start(&mut self, mut job: Job) -> Vec<Event> {
         assert!(self.idle());
+        let mut events = vec![];
+        if self.buffer_mode == BufferMode::Auto && job.input.as_ref().is_some_and(Input::borrowed) && !self.plaintext() {
+            let input = job.input.take().unwrap();
+            match input.into_owned_copy() {
+                Ok(input) => job.input = Some(input),
+                Err(_) => return vec![Event::Done(job, Err(Error::InvalidInput))],
+            }
+            events.push(Event::AutoCopied);
+        }
+        if let Some(Input::Borrowed(body)) = &job.input {
+            assert_eq!(body.client, job.client, "body lease belongs to its request");
+        }
         let mut commands = VecDeque::from([Command::query(
             Kind::Control,
             if job.read_only {
@@ -355,35 +438,47 @@ impl Connection {
             } else {
                 "BEGIN"
             },
-            &[],
+            vec![],
         )]);
         self.append_query(
             &mut commands,
             "settings",
             SETTINGS,
-            json!({"sub":job.subject,"role":"web"}).to_string(),
+            CString::new(json!({"sub":job.subject,"role":"web"}).to_string())
+                .unwrap()
+                .into(),
             Kind::Settings,
         );
         self.append_query(
             &mut commands,
             &job.function,
             &format!("SELECT {}($1::jsonb)", job.function),
-            job.input.to_string(),
+            job.input.take().expect("admitted job has input"),
             Kind::Output,
         );
         self.job = Some(job);
+        self.job_error = Error::Database;
         self.value = None;
+        self.http_output = None;
         self.cancelled = false;
         self.reset_prepared = false;
         self.state = State::Executing;
         self.deadline = Instant::now() + Duration::from_secs(6);
         if self.batch(commands, self.pipeline_enabled) {
-            vec![]
+            events
         } else {
             self.disconnect()
         }
     }
     pub fn cancel(&mut self) -> Vec<Event> {
+        if !self.borrowed_inputs.is_empty()
+            || self
+                .commands
+                .iter()
+                .any(|c| c.params.iter().any(Input::borrowed))
+        {
+            return self.disconnect();
+        }
         if !matches!(self.state, State::Executing | State::Commit) || self.cancelled {
             return vec![];
         }
@@ -399,6 +494,7 @@ impl Connection {
     }
     fn rollback(&mut self) -> Vec<Event> {
         self.value = None;
+        self.http_output = None;
         if !self.cancel.is_null() {
             self.state = State::Cancelled;
             return vec![];
@@ -420,9 +516,15 @@ impl Connection {
                 Event::Done(
                     job,
                     if success {
-                        Ok(self.value.take().unwrap_or(Value::Null))
+                        Ok(if let Some(bytes) = self.http_output.take() {
+                            Output::Http(bytes)
+                        } else {
+                            Output::Internal(self.value.take().unwrap_or(Value::Null))
+                        })
                     } else {
-                        Err(())
+                        self.http_output = None;
+                        self.value = None;
+                        Err(self.job_error)
                     },
                 )
             })
@@ -443,6 +545,7 @@ impl Connection {
                     }
                 } else {
                     self.state = State::Idle;
+                    return vec![Event::Transport(self.id, self.plaintext())];
                 }
                 vec![]
             }
@@ -459,10 +562,10 @@ impl Connection {
                 let valid = !self.failed
                     && !self.cancelled
                     && job.expires > crate::now()
-                    && self.value.as_ref().is_some_and(|value| {
-                        job.output
-                            .as_ref()
-                            .is_none_or(|schema| schema.is_valid(value))
+                    && (if job.subscription.is_none() {
+                        self.http_output.is_some()
+                    } else {
+                        self.value.is_some()
                     });
                 if !valid {
                     return self.rollback();
@@ -524,6 +627,13 @@ impl Connection {
             self.failed = true;
             let code = PQresultErrorField(result, PG_DIAG_SQLSTATE as i32);
             if !code.is_null()
+                && self.state == State::Executing
+                && status != ExecStatusType::PGRES_PIPELINE_ABORTED
+                && matches!(self.commands.front().map(|c| &c.kind), Some(Kind::Output))
+            {
+                self.job_error = Error::from_sqlstate(CStr::from_ptr(code).to_bytes());
+            }
+            if !code.is_null()
                 && matches!(
                     CStr::from_ptr(code).to_bytes(),
                     b"26000" | b"0A000" | b"42P05"
@@ -553,9 +663,24 @@ impl Connection {
                 }
                 let bytes =
                     std::slice::from_raw_parts(PQgetvalue(result, 0, 0).cast::<u8>(), length);
-                self.value = serde_json::from_slice(bytes).ok();
-                if self.value.is_none() {
-                    self.failed = true;
+                let http = matches!(self.commands.front().map(|c| &c.kind), Some(Kind::Output))
+                    && self.job.as_ref().is_some_and(|j| j.subscription.is_none());
+                if http {
+                    // PostgreSQL guarantees JSONB syntax; never treat arbitrary text as JSON.
+                    if PQftype(result, 0) != 3802 || PQfformat(result, 0) != 0 {
+                        self.failed = true;
+                        return;
+                    }
+                    let schema = self.job.as_ref().and_then(|j| j.output.as_deref());
+                    match crate::output::capture(bytes, schema) {
+                        Ok(body) => self.http_output = Some(body),
+                        Err(()) => self.failed = true,
+                    }
+                } else {
+                    self.value = serde_json::from_slice(bytes).ok();
+                    if self.value.is_none() {
+                        self.failed = true;
+                    }
                 }
             }
             Some(Kind::Control) if status == ExecStatusType::PGRES_COMMAND_OK => {}
@@ -616,12 +741,16 @@ impl Connection {
                         }
                     }
                     PostgresPollingStatusType::PGRES_POLLING_OK => {
-                        if PQsetnonblocking(self.raw, 1) != 0 {
+                        let encoding = PQparameterStatus(self.raw, c"client_encoding".as_ptr());
+                        if encoding.is_null()
+                            || CStr::from_ptr(encoding).to_bytes() != b"UTF8"
+                            || PQsetnonblocking(self.raw, 1) != 0
+                        {
                             return self.disconnect();
                         }
                         self.state = State::Audit;
                         if self.batch(
-                            VecDeque::from([Command::query(Kind::Audit, AUDIT, &[])]),
+                            VecDeque::from([Command::query(Kind::Audit, AUDIT, vec![])]),
                             false,
                         ) {
                             return vec![];
@@ -631,7 +760,7 @@ impl Connection {
                 }
                 return self.disconnect();
             }
-            let flush = PQflush(self.raw);
+            let flush = self.flush();
             if flush < 0 || PQconsumeInput(self.raw) != 1 || !self.arm(true, flush == 1) {
                 return self.disconnect();
             }
@@ -672,11 +801,11 @@ impl Connection {
                         if self.failed {
                             self.commands.clear();
                         }
-                        if let Some(command) = self.commands.front() {
-                            if !Self::dispatch(self.raw, command) {
+                        if let Some(command) = self.commands.front_mut() {
+                            if !Self::dispatch(self.raw, command, &mut self.borrowed_inputs) {
                                 return self.disconnect();
                             }
-                            let flush = PQflush(self.raw);
+                            let flush = self.flush();
                             if flush < 0 || !self.arm(true, flush == 1) {
                                 return self.disconnect();
                             }

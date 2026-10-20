@@ -15,6 +15,7 @@ pub struct Contract {
 #[serde(deny_unknown_fields)]
 pub struct Stream {
     pub name: String,
+    #[serde(skip)]
     pub authorize: String,
     pub input: Value,
 }
@@ -23,8 +24,9 @@ pub struct Stream {
 #[serde(deny_unknown_fields)]
 pub struct Endpoint {
     pub name: String,
+    #[serde(skip)]
     pub function: String,
-    #[serde(default)]
+    #[serde(skip)]
     pub read_only: bool,
     pub input: Value,
     pub output: Value,
@@ -63,20 +65,13 @@ impl Contract {
     }
 
     pub fn validate(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if self.version != 1 || self.endpoints.is_empty() {
-            return Err("expected version 1 and endpoints".into());
+        if self.version != 2 {
+            return Err("expected contract version 2".into());
         }
         let mut names = HashSet::new();
         for e in &self.endpoints {
             if !identifier(&e.name) || !names.insert(&e.name) {
                 return Err("invalid or duplicate endpoint name".into());
-            }
-            let function = e
-                .function
-                .strip_prefix("web.")
-                .ok_or("functions must be in web schema")?;
-            if !identifier(function) {
-                return Err("invalid SQL function identifier".into());
             }
             for s in [&e.input, &e.output] {
                 if !s.is_object() || !no_references(s) {
@@ -87,10 +82,7 @@ impl Contract {
         }
         names.clear();
         for s in &self.streams {
-            if !identifier(&s.name)
-                || !names.insert(&s.name)
-                || !s.authorize.strip_prefix("web.").is_some_and(identifier)
-            {
+            if !identifier(&s.name) || !names.insert(&s.name) {
                 return Err("invalid stream name or authorization function".into());
             }
             if !s.input.is_object() || !no_references(&s.input) {
@@ -123,13 +115,14 @@ mod tests {
     use super::*;
     #[test]
     fn rejects_sql_identifiers_and_remote_refs() {
-        let mut c: Contract = serde_json::from_value(json!({"version":1,"endpoints":[{
-            "name":"hello","function":"web.hello","input":{"type":"object"},"output":{"type":"object"}
-        }]})).unwrap();
+        let mut c: Contract = serde_json::from_value(json!({"version":2,"endpoints":[{
+            "name":"hello","input":{"type":"object"},"output":{"type":"object"}
+        }]}))
+        .unwrap();
         assert!(c.validate().is_ok());
-        c.endpoints[0].function = "web.hello; drop schema web".into();
+        c.endpoints[0].name = "hello; drop schema web".into();
         assert!(c.validate().is_err());
-        c.endpoints[0].function = "web.hello".into();
+        c.endpoints[0].name = "hello".into();
         c.endpoints[0].input = json!({"$ref":"https://example.com/schema"});
         assert!(c.validate().is_err());
     }

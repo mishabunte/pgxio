@@ -6,7 +6,7 @@ The concrete boundaries in this alpha are:
 
 - Runtime database login is `web`; Supabase session-pooler usernames may use `web.PROJECT_REF`, but the authenticated database role must still audit as `web`. No role switching is implemented.
 - No runtime migration credentials. The development database's admin password is passed only to the database container. Migration tools should use a separate operator environment.
-- Manifest-only SQL calls, validated identifiers, parameterized JSON inputs, validated outputs before commit, bounded request sizes, bounded admission, and local transaction timeouts. Prepared statements and pipelining retain these boundaries; transactions never share a connection concurrently.
+- Explicitly declared SQL calls, validated identifiers, parameterized JSON inputs, result metadata and optional output-schema checks before commit, bounded request sizes, bounded admission, and local transaction timeouts. Prepared statements and pipelining retain these boundaries; transactions never share a connection concurrently.
 - JWT algorithms are restricted to RS256/ES256 with configured JWKS. HS256 requires explicit development mode and a development secret. Issuer, audience, subject, and expiry are required. The caller cannot set the SQL role through JWT claims.
 - Stream authorization is distinct from signal routing. Permission is checked before each delivery; private data never travels inside NOTIFY payloads.
 - Non-root API container, read-only filesystem, dropped capabilities, loopback development port, and exact browser origin allowlists.
@@ -14,6 +14,8 @@ The concrete boundaries in this alpha are:
 ## SQL responsibilities
 
 The example's table owner is not the function executor. `pgxio_executor` is a non-login role with only the required table grants; `web` has only schema usage and explicit function execution. Functions use qualified objects and a fixed search path. PUBLIC execution and CREATE privileges are revoked. Repeat the default-privilege rules for whichever role creates future functions; default privileges belong to the creating role.
+
+REST request JSON is passed as a bound `jsonb` parameter without module schema validation by default. PostgreSQL checks JSON syntax, not required fields, property types, ranges or allowed keys. Functions must explicitly enforce those rules; the example uses generic `PT400` exceptions. Existing deployments that rely on input schemas should set `pgxio_validate_input on;` until their SQL checks are in place. Output and subscription-parameter schema checks are opt-in. WebSocket protocol checks, JWT verification, and per-delivery SQL authorization remain mandatory. A contract file alone does not enable checks. With output checks off, schema-mismatched data may reach clients and associated writes commit; enforce intended behavior in SQL and contract tests.
 
 Every published function must enforce its own caller/tenant policy using the sanitized `request.jwt.claims` value. The example filters by subject and enabled account. Functions can also use carefully designed RLS; remember that table owners, superusers, and BYPASSRLS roles may bypass policies. Do not assume putting a function in the `web` schema makes its SQL safe.
 

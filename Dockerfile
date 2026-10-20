@@ -11,9 +11,11 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY examples ./examples
 ARG CARGO_FEATURES=""
-RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/local/cargo/git --mount=type=cache,target=/build/target cargo test --release --locked --test core --features "$CARGO_FEATURES" && cargo build --release --locked --features "$CARGO_FEATURES" && cp target/release/libngx_http_pgxio_module.so /module.so
+RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/local/cargo/git --mount=type=cache,target=/build/target cargo test --release --locked --test core --test allocations --features "$CARGO_FEATURES" -- --nocapture && cargo build --release --locked --features "$CARGO_FEATURES" && cp target/release/libngx_http_pgxio_module.so /module.so
 
 FROM debian:trixie-slim
+LABEL io.pgxio.config-format="nginx-v1" io.pgxio.output-validation="off"
+LABEL io.pgxio.rest-input-validation="postgres"
 RUN apt-get update && apt-get install -y --no-install-recommends libpq5 libssl3t64 libpcre2-8-0 zlib1g ca-certificates && rm -rf /var/lib/apt/lists/* && useradd --uid 10001 --no-create-home pgxio && mkdir -p /tmp/client_body /tmp/proxy /usr/local/nginx/logs && chown -R pgxio /tmp/client_body /tmp/proxy /usr/local/nginx
 COPY --from=build /nginx/objs/nginx /usr/local/bin/nginx
 COPY --from=build /module.so /usr/local/nginx/modules/libngx_http_pgxio_module.so

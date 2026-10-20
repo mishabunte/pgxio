@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 root=Path(__file__).resolve().parent.parent
+from nginx_config import read_settings, render
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument("--production",action="store_true",help="also test RS256 JWKS and verify-full PostgreSQL TLS")
 args=p.parse_args()
@@ -36,12 +37,12 @@ try:
         modulus=subprocess.check_output(["openssl","rsa","-in",str(private),"-noout","-modulus"],text=True).strip().split("=",1)[1]
         enc=lambda value:base64.urlsafe_b64encode(value).rstrip(b"=").decode()
         (fixture/"jwks.json").write_text(json.dumps({"keys":[{"kty":"RSA","kid":"local-test","alg":"RS256","use":"sig","n":enc(bytes.fromhex(modulus)),"e":"AQAB"}]}))
-        config=json.loads((root/"examples/pgxio.json").read_text())
+        config,routes=read_settings(root/"examples/pgxio.conf")
         config.update(development=False,jwks_file="/etc/pgxio-tls/jwks.json")
-        (fixture/"pgxio.json").write_text(json.dumps(config))
+        (fixture/"pgxio.conf").write_text(render(config,routes))
         secrets=dict(line.split("=",1) for line in (root/".env").read_text().splitlines() if line and not line.startswith("#"))
         url=f"postgresql://web:{secrets['PGXIO_WEB_PASSWORD']}@postgres/pgxio?hostaddr=172.29.87.2&sslmode=verify-full&sslrootcert=/etc/pgxio-tls/cert.pem"
-        override={"services":{"api":{"environment":{"PGXIO_DATABASE_URL":url},"volumes":["./.pgxio/test-tls/pgxio.json:/etc/pgxio/pgxio.json:ro"]}}}
+        override={"services":{"api":{"environment":{"PGXIO_DATABASE_URL":url},"volumes":["./.pgxio/test-tls/pgxio.conf:/etc/pgxio/pgxio.conf:ro"]}}}
         override_path=fixture/"production-compose.json"
         override_path.touch(mode=0o600,exist_ok=True)
         override_path.write_text(json.dumps(override))

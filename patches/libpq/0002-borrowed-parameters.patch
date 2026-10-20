@@ -1,0 +1,1260 @@
+diff --git a/doc/src/sgml/libpq.sgml b/doc/src/sgml/libpq.sgml
+index 68487a3954..b193dc4364 100644
+--- a/doc/src/sgml/libpq.sgml
++++ b/doc/src/sgml/libpq.sgml
+@@ -11401,4 +11401,38 @@ main(int argc, char **argv)
+   </example>
+ 
+  </sect1>
++ <sect1 id="libpq-borrowed-parameters">
++  <title>Experimental Borrowed Parameter Buffers</title>
++  <para>
++   <function>PQsendQueryParamsBorrowed</function> and
++   <function>PQsendQueryPreparedBorrowed</function> are experimental variants
++   of the corresponding asynchronous query functions. They accept an array of
++   <type>PQborrowedParam</type> structures in place of the value, length and
++   format arrays. Each parameter contains <structfield>segments</structfield>
++   (an array of <type>PQbuffer</type> pointer/length pairs),
++   <structfield>nsegments</structfield>, <structfield>format</structfield>
++   (zero for text or one for binary), and <structfield>isnull</structfield>
++   (zero or one). SQL NULL is distinct from a non-null zero-length parameter.
++   Text segments need no terminating zero and must not contain zero bytes.
++  </para>
++  <para>
++   Descriptor arrays are copied during the call. After a successful submission,
++   all referenced bytes must remain immutable and readable until
++   <function>PQflush</function> returns zero, or connection reset or
++   <function>PQfinish</function> returns. A negative flush result does not end
++   this obligation. Submission failure retains no new borrowed references;
++   a failure during transmission closes the transport. Flush completion does
++   not establish query success or commit success. Queries are never replayed.
++  </para>
++  <para>
++   These functions preserve the existing frontend/backend protocol. Plaintext
++   sockets can gather several segments in a single write. Encrypted transports
++   use their existing write functions with stable retry arguments; encryption
++   and operating-system buffering still apply. Protocol tracing uses the
++   ordinary copied parameter implementation. Existing query functions retain
++   their ownership contract, including when interleaved with borrowed queries
++   in pipeline mode. The feature macro is
++   <symbol>LIBPQ_HAS_BORROWED_PARAMS</symbol>.
++  </para>
++ </sect1>
+ </chapter>
+diff --git a/src/interfaces/libpq/exports.txt b/src/interfaces/libpq/exports.txt
+index 1e3d5bd586..9aef975354 100644
+--- a/src/interfaces/libpq/exports.txt
++++ b/src/interfaces/libpq/exports.txt
+@@ -211,3 +211,5 @@ PQdefaultAuthDataHook     208
+ PQfullProtocolVersion     209
+ appendPQExpBufferVA       210
+ PQgetThreadLock           211
++PQsendQueryParamsBorrowed 212
++PQsendQueryPreparedBorrowed 213
+diff --git a/src/interfaces/libpq/fe-exec.c b/src/interfaces/libpq/fe-exec.c
+index 294690648b..a9c3cc502a 100644
+--- a/src/interfaces/libpq/fe-exec.c
++++ b/src/interfaces/libpq/fe-exec.c
+@@ -28,6 +28,7 @@
+ #include "libpq-fe.h"
+ #include "libpq-int.h"
+ #include "mb/pg_wchar.h"
++#include "port/pg_bswap.h"
+ 
+ /* keep this in same order as ExecStatusType in libpq-fe.h */
+ char	   *const pgresStatus[] = {
+@@ -4780,3 +4781,300 @@ PQunescapeBytea(const unsigned char *strtext, size_t *retbuflen)
+ 	*retbuflen = buflen;
+ 	return tmpbuf;
+ }
++
++/* Append a network-order integer to an owned protocol fragment. */
++static void
++borrowInt(PQExpBuffer b, uint32 value, int width)
++{
++	if (width == 2)
++	{
++		uint16		v = pg_hton16((uint16) value);
++
++		appendBinaryPQExpBuffer(b, (char *) &v, 2);
++	}
++	else
++	{
++		uint32		v = pg_hton32(value);
++
++		appendBinaryPQExpBuffer(b, (char *) &v, 4);
++	}
++}
++
++static bool
++borrowPart(PGBorrowedOutput **head, PGBorrowedOutput **tail,
++		   const char *data, size_t len, bool owned)
++{
++	PGBorrowedOutput *part;
++
++	if (!len)
++		return true;
++	part = calloc(1, sizeof(*part));
++	if (!part)
++		return false;
++	part->data = data;
++	part->len = len;
++	part->owned = owned;
++	if (*tail)
++		(*tail)->next = part;
++	else
++		*head = part;
++	*tail = part;
++	return true;
++}
++
++static bool
++borrowSeal(PQExpBuffer b, PGBorrowedOutput **head, PGBorrowedOutput **tail)
++{
++	if (PQExpBufferBroken(b) || b->len > INT_MAX)
++		return false;
++	if (!b->len)
++		return true;
++	if (!borrowPart(head, tail, b->data, b->len, true))
++		return false;
++	initPQExpBuffer(b);			/* Ownership of the old allocation passed to
++								 * the list. */
++	return !PQExpBufferBroken(b);
++}
++
++/*
++ * Build off-connection so allocation/validation failures cannot publish a
++ * partial message.  Old entry points continue to copy all parameter data.
++ */
++static int
++sendBorrowed(PGconn *conn, const char *command, const char *name,
++			 int nParams, const Oid *types, const PQborrowedParam *params,
++			 int resultFormat)
++{
++	PGBorrowedOutput *head = NULL,
++			   *tail = NULL;
++	PGcmdQueueEntry *entry = NULL;
++	PQExpBufferData b;
++	size_t		bindlen,
++				namelen,
++				commandlen = command ? strlen(command) : 0;
++	int		   *lengths = NULL;
++	uint64		newBytes = 0;
++	int			i;
++
++	if (!PQsendQueryStart(conn, true))
++		return 0;
++	if (!name || nParams < 0 || nParams > PQ_QUERY_PARAM_MAX_LIMIT ||
++		(nParams && !params) || (resultFormat != 0 && resultFormat != 1))
++	{
++		libpq_append_conn_error(conn, "invalid borrowed query arguments");
++		return 0;
++	}
++	namelen = strlen(name);
++	if (namelen > INT_MAX / 2 || commandlen > INT_MAX / 2 ||
++		namelen + commandlen + 8 + 4 * (size_t) nParams > INT_MAX)
++	{
++		libpq_append_conn_error(conn, "borrowed query message is too large");
++		return 0;
++	}
++	lengths = calloc(Max(nParams, 1), sizeof(int));
++	if (!lengths)
++	{
++		libpq_append_conn_error(conn, "out of memory");
++		return 0;
++	}
++	bindlen = 14 + namelen + 6 * (size_t) nParams;
++	for (i = 0; i < nParams; i++)
++	{
++		size_t		j,
++					len = 0;
++		const PQborrowedParam *p = &params[i];
++
++		if ((p->format != 0 && p->format != 1) ||
++			(p->isnull != 0 && p->isnull != 1) ||
++			p->nsegments > SIZE_MAX / sizeof(PQbuffer) ||
++			(!p->isnull && p->nsegments && !p->segments))
++			goto invalid;
++		if (p->isnull)
++			continue;
++		for (j = 0; j < p->nsegments; j++)
++		{
++			const PQbuffer *s = &p->segments[j];
++
++			if (s->len > INT_MAX - len || (s->len && !s->data))
++				goto invalid;
++			if (p->format == 0 && s->len && memchr(s->data, 0, s->len))
++				goto invalid;
++			len += s->len;
++		}
++		if (len > INT_MAX - bindlen)
++			goto invalid;
++		bindlen += len;
++		lengths[i] = (int) len;
++	}
++
++	/* Tracing expects a contiguous message: explicitly use the copied API. */
++	if (conn->Pfdebug)
++	{
++		char	  **values = calloc(Max(nParams, 1), sizeof(char *));
++		int		   *formats = calloc(Max(nParams, 1), sizeof(int));
++		int			ok = 0;
++
++		if (values && formats)
++		{
++			for (i = 0; i < nParams; i++)
++			{
++				size_t		j,
++							offset = 0;
++
++				formats[i] = params[i].format;
++				if (params[i].isnull)
++					continue;
++				values[i] = malloc((size_t) lengths[i] + 1);
++				if (!values[i])
++					break;
++				for (j = 0; j < params[i].nsegments; j++)
++				{
++					const PQbuffer *s = &params[i].segments[j];
++
++					if (s->len)
++						memcpy(values[i] + offset, s->data, s->len);
++					offset += s->len;
++				}
++				values[i][offset] = 0;
++			}
++			if (i == nParams)
++			{
++				ok = PQsendQueryGuts(conn, command, name, nParams, types,
++									 (const char *const *) values, lengths, formats, resultFormat);
++				if (!ok)
++				{
++					pqDropConnection(conn, false);
++					conn->status = CONNECTION_BAD;
++				}
++			}
++			else
++				libpq_append_conn_error(conn, "out of memory");
++		}
++		else
++			libpq_append_conn_error(conn, "out of memory");
++		if (values)
++			for (i = 0; i < nParams; i++)
++				free(values[i]);
++		free(values);
++		free(formats);
++		free(lengths);
++		return ok;
++	}
++
++	initPQExpBuffer(&b);
++	entry = pqAllocCmdQueueEntry(conn);
++	if (!entry)
++		goto failed;
++	if (command)
++	{
++		appendPQExpBufferChar(&b, PqMsg_Parse);
++		borrowInt(&b, 8 + namelen + commandlen + (types ? 4 * nParams : 0), 4);
++		appendBinaryPQExpBuffer(&b, name, namelen + 1);
++		appendBinaryPQExpBuffer(&b, command, commandlen + 1);
++		borrowInt(&b, types ? nParams : 0, 2);
++		if (types)
++			for (i = 0; i < nParams; i++)
++				borrowInt(&b, types[i], 4);
++	}
++	appendPQExpBufferChar(&b, PqMsg_Bind);
++	borrowInt(&b, bindlen, 4);
++	appendPQExpBufferChar(&b, 0);	/* unnamed portal */
++	appendBinaryPQExpBuffer(&b, name, namelen + 1);
++	borrowInt(&b, nParams, 2);
++	for (i = 0; i < nParams; i++)
++		borrowInt(&b, params[i].format, 2);
++	borrowInt(&b, nParams, 2);
++	for (i = 0; i < nParams; i++)
++	{
++		size_t		j;
++
++		borrowInt(&b, params[i].isnull ? (uint32) -1 : lengths[i], 4);
++		if (params[i].isnull || !lengths[i])
++			continue;
++		if (!borrowSeal(&b, &head, &tail))
++			goto failed;
++		for (j = 0; j < params[i].nsegments; j++)
++			if (!borrowPart(&head, &tail, params[i].segments[j].data,
++							params[i].segments[j].len, false))
++				goto failed;
++	}
++	borrowInt(&b, 1, 2);
++	borrowInt(&b, resultFormat, 2);
++	appendPQExpBufferChar(&b, PqMsg_Describe);
++	borrowInt(&b, 6, 4);
++	appendPQExpBufferChar(&b, 'P');
++	appendPQExpBufferChar(&b, 0);
++	appendPQExpBufferChar(&b, PqMsg_Execute);
++	borrowInt(&b, 9, 4);
++	appendPQExpBufferChar(&b, 0);
++	borrowInt(&b, 0, 4);
++	if (conn->pipelineStatus == PQ_PIPELINE_OFF)
++	{
++		appendPQExpBufferChar(&b, PqMsg_Sync);
++		borrowInt(&b, 4, 4);
++	}
++	if (!borrowSeal(&b, &head, &tail))
++		goto failed;
++	for (PGBorrowedOutput *part = head; part; part = part->next)
++		newBytes += part->len;
++	if (conn->borrowBytes > UINT64_MAX - newBytes - conn->outCount)
++		goto failed;
++	/* Allocation failure here leaves the old output and new query untouched. */
++	if (pqSealBorrowedOutput(conn) < 0)
++		goto failed;
++	if (conn->borrowTail)
++		conn->borrowTail->next = head;
++	else
++		conn->borrowHead = head;
++	conn->borrowTail = tail;
++	conn->borrowBytes += newBytes;
++	head = NULL;
++	entry->queryclass = PGQUERY_EXTENDED;
++	if (command)
++		entry->query = strdup(command);
++	termPQExpBuffer(&b);
++	free(lengths);
++	/* Sending failure releases all borrowed references by closing transport. */
++	if ((conn->pipelineStatus == PQ_PIPELINE_OFF || conn->borrowBytes >= 8192) && pqFlush(conn) < 0)
++	{
++		pqDropConnection(conn, false);
++		conn->status = CONNECTION_BAD;
++		pqRecycleCmdQueueEntry(conn, entry);
++		return 0;
++	}
++	pqAppendCmdQueueEntry(conn, entry);
++	return 1;
++
++invalid:
++	libpq_append_conn_error(conn, "invalid borrowed parameter or message length");
++	free(lengths);
++	return 0;
++failed:
++	libpq_append_conn_error(conn, "could not allocate borrowed query message");
++	pqFreeBorrowedOutput(head);
++	termPQExpBuffer(&b);
++	pqRecycleCmdQueueEntry(conn, entry);
++	free(lengths);
++	return 0;
++}
++
++int
++PQsendQueryParamsBorrowed(PGconn *conn, const char *command, int nParams,
++						  const Oid *paramTypes, const PQborrowedParam *params,
++						  int resultFormat)
++{
++	if (!command)
++	{
++		if (conn)
++			libpq_append_conn_error(conn, "command string is a null pointer");
++		return 0;
++	}
++	return sendBorrowed(conn, command, "", nParams, paramTypes, params, resultFormat);
++}
++
++int
++PQsendQueryPreparedBorrowed(PGconn *conn, const char *name, int nParams,
++							const PQborrowedParam *params, int resultFormat)
++{
++	return sendBorrowed(conn, NULL, name, nParams, NULL, params, resultFormat);
++}
+diff --git a/src/interfaces/libpq/libpq-fe.h b/src/interfaces/libpq/libpq-fe.h
+index f51fd620b0..3432720716 100644
+--- a/src/interfaces/libpq/libpq-fe.h
++++ b/src/interfaces/libpq/libpq-fe.h
+@@ -524,6 +524,28 @@ extern PGresult *PQexecPrepared(PGconn *conn,
+ #define PQ_QUERY_PARAM_MAX_LIMIT 65535
+ 
+ extern int	PQsendQuery(PGconn *conn, const char *query);
++#define LIBPQ_HAS_BORROWED_PARAMS 1
++typedef struct
++{
++	const char *data;
++	size_t		len;
++} PQbuffer;
++
++typedef struct
++{
++	const PQbuffer *segments;
++	size_t		nsegments;
++	int			format;
++	int			isnull;
++} PQborrowedParam;
++
++extern int	PQsendQueryParamsBorrowed(PGconn *conn, const char *command,
++									  int nParams, const Oid *paramTypes,
++									  const PQborrowedParam *params, int resultFormat);
++extern int	PQsendQueryPreparedBorrowed(PGconn *conn, const char *stmtName,
++										int nParams, const PQborrowedParam *params,
++										int resultFormat);
++
+ extern int	PQsendQueryParams(PGconn *conn,
+ 							  const char *command,
+ 							  int nParams,
+diff --git a/src/interfaces/libpq/meson.build b/src/interfaces/libpq/meson.build
+index b0ae72167a..33e27a4d84 100644
+--- a/src/interfaces/libpq/meson.build
++++ b/src/interfaces/libpq/meson.build
+@@ -161,6 +161,7 @@ tests += {
+       't/004_load_balance_dns.pl',
+       't/005_negotiate_encryption.pl',
+       't/006_service.pl',
++      't/007_borrowed.pl',
+     ],
+     'env': {
+       'with_ssl': ssl_library,
+diff --git a/src/interfaces/libpq/t/007_borrowed.pl b/src/interfaces/libpq/t/007_borrowed.pl
+new file mode 100644
+index 0000000000..a1dc1fd53f
+--- /dev/null
++++ b/src/interfaces/libpq/t/007_borrowed.pl
+@@ -0,0 +1,21 @@
++# Copyright (c) 2026, PostgreSQL Global Development Group
++use strict;
++use warnings FATAL => 'all';
++use PostgreSQL::Test::Utils;
++use PostgreSQL::Test::Cluster;
++use Test::More;
++
++plan skip_all => 'borrowed buffer guard-page test requires POSIX' if $^O eq 'MSWin32';
++my $node = PostgreSQL::Test::Cluster->new('borrowed');
++$node->init;
++$node->start;
++command_ok(['libpq_borrowed', $node->connstr('postgres')],
++    'borrowed buffers, mixed pipelines and release under backpressure');
++SKIP: {
++    my ($directory) = grep { -f "$_/borrowed_faults.so" } split(/:/, $ENV{PATH});
++    skip 'Linux fault shim unavailable', 1 unless $^O eq 'linux' && $directory;
++    command_ok(['env', "LD_PRELOAD=$directory/borrowed_faults.so",
++        'LIBPQ_TEST_SHORT_WRITES=1', 'libpq_borrowed', $node->connstr('postgres')],
++        'allocation failures, interrupted and short writes');
++}
++done_testing();
+diff --git a/src/interfaces/libpq/test/Makefile b/src/interfaces/libpq/test/Makefile
+index 4e17ec1514..3768b7bec1 100644
+--- a/src/interfaces/libpq/test/Makefile
++++ b/src/interfaces/libpq/test/Makefile
+@@ -15,10 +15,18 @@ override CPPFLAGS := -I$(libpq_srcdir) $(CPPFLAGS)
+ LDFLAGS_INTERNAL += $(libpq_pgport)
+ 
+ PROGS = libpq_testclient libpq_uri_regress
++ifneq ($(PORTNAME), win32)
++PROGS += libpq_borrowed bench_borrowed
++endif
+ 
+ all: $(PROGS)
++ifeq ($(PORTNAME), linux)
++all: borrowed_faults.so
++borrowed_faults.so: borrowed_faults.c
++	$(CC) $(CFLAGS) -shared -fPIC -o $@ $< -ldl
++endif
+ 
+ $(PROGS): $(WIN32RES)
+ 
+ clean distclean:
+-	rm -f $(PROGS) *.o
++	rm -f $(PROGS) *.o borrowed_faults.so
+diff --git a/src/interfaces/libpq/test/bench_borrowed.c b/src/interfaces/libpq/test/bench_borrowed.c
+new file mode 100644
+index 0000000000..7522f6aba4
+--- /dev/null
++++ b/src/interfaces/libpq/test/bench_borrowed.c
+@@ -0,0 +1,127 @@
++/* Standalone libpq client CPU benchmark; deliberately no JSON parsing/JWT. */
++#include <libpq-fe.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <time.h>
++
++static double
++clock_seconds(clockid_t id)
++{
++	struct timespec t;
++
++	clock_gettime(id, &t);
++	return t.tv_sec + t.tv_nsec / 1e9;
++}
++static void
++check(int ok, PGconn *c)
++{
++	if (!ok)
++	{
++		fprintf(stderr, "libpq benchmark: %s\n", PQerrorMessage(c));
++		exit(1);
++	}
++}
++int
++main(int argc, char **argv)
++{
++	PGconn	   *c;
++	PGresult   *r;
++	char	   *body;
++	size_t		bytes,
++				count,
++				requests = 0,
++				i;
++	int			borrowed;
++	double		duration,
++				warmup,
++				start,
++				cpu,
++				elapsed,
++				cpu_elapsed;
++#ifdef LIBPQ_HAS_BORROWED_PARAMS
++	PQbuffer   *segments;
++	PQborrowedParam param;
++#endif
++	if (argc != 7)
++		return 2;
++	bytes = strtoull(argv[2], NULL, 10);
++	count = strtoull(argv[3], NULL, 10);
++	duration = strtod(argv[4], NULL);
++	warmup = strtod(argv[5], NULL);
++	borrowed = strcmp(argv[6], "borrowed") == 0;
++	if (!bytes || bytes > 1048576 || !count || count > bytes || duration <= 0 || warmup < 0)
++		return 2;
++	c = PQconnectdb(argv[1]);
++	check(PQstatus(c) == CONNECTION_OK, c);
++	body = malloc(bytes + 1);
++	check(body != NULL, c);
++	memset(body, 'x', bytes);
++	body[bytes] = 0;
++#ifdef LIBPQ_HAS_BORROWED_PARAMS
++	segments = calloc(count, sizeof(*segments));
++	check(segments != NULL, c);
++	for (i = 0; i < count; i++)
++	{
++		size_t		begin = i * bytes / count,
++					end = (i + 1) * bytes / count;
++
++		segments[i].data = body + begin;
++		segments[i].len = end - begin;
++	}
++	param.segments = segments;
++	param.nsegments = count;
++	param.format = 0;
++	param.isnull = 0;
++#else
++	if (borrowed)
++		return 2;
++	(void) i;
++#endif
++	r = PQprepare(c, "bench", "SELECT octet_length($1::text)", 1, NULL);
++	check(r && PQresultStatus(r) == PGRES_COMMAND_OK, c);
++	PQclear(r);
++	start = clock_seconds(CLOCK_MONOTONIC);
++	cpu = clock_seconds(CLOCK_PROCESS_CPUTIME_ID);
++	/* Warmup and measurement use the identical request path. */
++	for (int phase = 0; phase < 2; phase++)
++	{
++		double		end = clock_seconds(CLOCK_MONOTONIC) + (phase ? duration : warmup);
++
++		if (phase)
++		{
++			start = clock_seconds(CLOCK_MONOTONIC);
++			cpu = clock_seconds(CLOCK_PROCESS_CPUTIME_ID);
++			requests = 0;
++		}
++		while (clock_seconds(CLOCK_MONOTONIC) < end)
++		{
++#ifdef LIBPQ_HAS_BORROWED_PARAMS
++			if (borrowed)
++				check(PQsendQueryPreparedBorrowed(c, "bench", 1, &param, 0), c);
++			else
++#endif
++			{
++				const char *values[] = {body};
++
++				check(PQsendQueryPrepared(c, "bench", 1, values, NULL, NULL, 0), c);
++			}
++			r = PQgetResult(c);
++			check(r && PQresultStatus(r) == PGRES_TUPLES_OK && strtoull(PQgetvalue(r, 0, 0), NULL, 10) == bytes, c);
++			PQclear(r);
++			check(PQgetResult(c) == NULL, c);
++			requests++;
++		}
++	}
++	elapsed = clock_seconds(CLOCK_MONOTONIC) - start;
++	cpu_elapsed = clock_seconds(CLOCK_PROCESS_CPUTIME_ID) - cpu;
++	printf("{\"kind\":\"libpq_client_microbenchmark\",\"requests\":%zu,\"body_bytes\":%zu,\"segments\":%zu,\"borrowed\":%s,\"libpq_version\":%d,\"ssl\":%s,\"wall_seconds\":%.9f,\"client_cpu_seconds\":%.9f,\"client_cpu_percent\":%.3f,\"cpu_ns_per_byte\":%.6f,\"requests_per_second\":%.3f}\n",
++		   requests, bytes, count, borrowed ? "true" : "false", PQlibVersion(), PQsslInUse(c) ? "true" : "false", elapsed, cpu_elapsed,
++		   100 * cpu_elapsed / elapsed, 1e9 * cpu_elapsed / (bytes * requests), requests / elapsed);
++	PQfinish(c);
++#ifdef LIBPQ_HAS_BORROWED_PARAMS
++	free(segments);
++#endif
++	free(body);
++	return 0;
++}
+diff --git a/src/interfaces/libpq/test/borrowed_faults.c b/src/interfaces/libpq/test/borrowed_faults.c
+new file mode 100644
+index 0000000000..472e71421f
+--- /dev/null
++++ b/src/interfaces/libpq/test/borrowed_faults.c
+@@ -0,0 +1,133 @@
++/* Linux test-only syscall shim. Never linked or loaded by production builds. */
++#ifndef _GNU_SOURCE
++#define _GNU_SOURCE
++#endif
++#include <dlfcn.h>
++#include <errno.h>
++#include <netinet/in.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/socket.h>
++#include <sys/uio.h>
++#include <unistd.h>
++
++static unsigned calls;
++static unsigned gate_calls[8192];
++
++/* Linux-only allocation injection; disarmed outside a single API call. */
++extern void *__libc_malloc(size_t);
++extern void *__libc_calloc(size_t, size_t);
++extern void *__libc_realloc(void *, size_t);
++static long allocations = -1;
++void		libpq_test_fail_alloc(long after);
++void
++libpq_test_fail_alloc(long after)
++{
++	allocations = after;
++}
++static int
++fail_alloc(void)
++{
++	if (allocations < 0)
++		return 0;
++	if (allocations-- == 0)
++	{
++		allocations = -1;
++		errno = ENOMEM;
++		return 1;
++	}
++	return 0;
++}
++void *
++malloc(size_t n)
++{
++	return fail_alloc() ? NULL : __libc_malloc(n);
++}
++void *
++calloc(size_t n, size_t size)
++{
++	return fail_alloc() ? NULL : __libc_calloc(n, size);
++}
++void *
++realloc(void *p, size_t n)
++{
++	return fail_alloc() ? NULL : __libc_realloc(p, n);
++}
++static int
++fault(int fd)
++{
++	struct sockaddr_in peer;
++	socklen_t	len = sizeof(peer);
++	const char *gate = getenv("LIBPQ_TEST_BLOCK_FILE");
++
++	if (getpeername(fd, (struct sockaddr *) &peer, &len) || peer.sin_family != AF_INET || ntohs(peer.sin_port) != 5432)
++		return 0;
++	if (gate && access(gate, F_OK) == 0)
++	{
++		if (getenv("LIBPQ_TEST_ALLOW_PREFIX") && fd >= 0 && fd < 8192 && gate_calls[fd]++ == 0)
++			return 0;
++		errno = EAGAIN;
++		return 1;
++	}
++	if (fd >= 0 && fd < 8192)
++		gate_calls[fd] = 0;
++	if (!getenv("LIBPQ_TEST_SHORT_WRITES"))
++		return 0;
++	calls++;
++	if (calls % 19 == 0)
++	{
++		errno = EINTR;
++		return 1;
++	}
++	if (calls % 19 == 1)
++	{
++		errno = EAGAIN;
++		return 1;
++	}
++	return 0;
++}
++ssize_t
++send(int fd, const void *buf, size_t len, int flags)
++{
++	static ssize_t (*real_send) (int, const void *, size_t, int);
++
++	if (!real_send)
++		real_send = dlsym(RTLD_NEXT, "send");
++	if (fault(fd))
++		return -1;
++	if (getenv("LIBPQ_TEST_SHORT_WRITES") && len > 16384)
++		len = 16384;
++	return real_send(fd, buf, len, flags);
++}
++ssize_t
++sendmsg(int fd, const struct msghdr *message, int flags)
++{
++	static ssize_t (*real_sendmsg) (int, const struct msghdr *, int);
++	struct msghdr msg = *message;
++	struct iovec iov[16];
++	size_t		used = 0,
++				count = 0;
++
++	if (!real_sendmsg)
++		real_sendmsg = dlsym(RTLD_NEXT, "sendmsg");
++	if (fault(fd))
++		return -1;
++	if (getenv("LIBPQ_TEST_ALLOW_PREFIX") && fd >= 0 && fd < 8192 && gate_calls[fd] == 1)
++	{
++		msg.msg_iovlen = message->msg_iovlen ? 1 : 0;
++		return real_sendmsg(fd, &msg, flags);
++	}
++	if (!getenv("LIBPQ_TEST_SHORT_WRITES"))
++		return real_sendmsg(fd, message, flags);
++	while (count < message->msg_iovlen && count < 16 && used < 16384)
++	{
++		iov[count] = message->msg_iov[count];
++		if (iov[count].iov_len > 16384 - used)
++			iov[count].iov_len = 16384 - used;
++		used += iov[count].iov_len;
++		count++;
++	}
++	msg.msg_iov = iov;
++	msg.msg_iovlen = count;
++	return real_sendmsg(fd, &msg, flags);
++}
+diff --git a/src/interfaces/libpq/test/libpq_borrowed.c b/src/interfaces/libpq/test/libpq_borrowed.c
+new file mode 100644
+index 0000000000..d65e5d025b
+--- /dev/null
++++ b/src/interfaces/libpq/test/libpq_borrowed.c
+@@ -0,0 +1,481 @@
++/* Standalone borrowed-parameter contract tests; dedicated test database only. */
++#include "postgres_fe.h"
++#include "libpq-fe.h"
++#include "libpq-int.h"
++#include <poll.h>
++#include <sys/mman.h>
++#include <sys/socket.h>
++#include <time.h>
++#undef fprintf
++#undef snprintf
++#ifdef __linux__
++extern void libpq_test_fail_alloc(long after) __attribute__((weak));
++#endif
++
++static void
++require(int ok, PGconn *c, const char *what)
++{
++	if (!ok)
++	{
++		fprintf(stderr, "%s: %s\n", what, c ? PQerrorMessage(c) : "");
++		exit(1);
++	}
++}
++static double
++now(void)
++{
++	struct timespec t;
++
++	clock_gettime(CLOCK_MONOTONIC, &t);
++	return t.tv_sec + t.tv_nsec / 1e9;
++}
++static void
++flush_all(PGconn *c)
++{
++	double		deadline = now() + 15;
++	int			rc;
++
++	while ((rc = PQflush(c)) == 1)
++	{
++		struct pollfd p = {PQsocket(c), POLLIN | POLLOUT, 0};
++
++		require(now() < deadline, c, "flush deadline");
++		require(poll(&p, 1, 1000) >= 0, c, "poll");
++		if (p.revents & POLLIN)
++			require(PQconsumeInput(c), c, "consume while flushing");
++	}
++	require(rc == 0, c, "flush");
++}
++static void
++expect(PGconn *c, const char *value)
++{
++	PGresult   *r;
++
++	flush_all(c);
++	require(PQsetnonblocking(c, 0) == 0, c, "blocking mode");
++	r = PQgetResult(c);
++	require(r && PQresultStatus(r) == PGRES_TUPLES_OK && PQntuples(r) == 1 &&
++			strcmp(PQgetvalue(r, 0, 0), value) == 0, c, "unexpected result");
++	PQclear(r);
++	require(PQgetResult(c) == NULL, c, "end of results");
++}
++static void
++exec_ok(PGconn *c, const char *sql)
++{
++	PGresult   *r = PQexec(c, sql);
++
++	require(r && (PQresultStatus(r) == PGRES_COMMAND_OK || PQresultStatus(r) == PGRES_TUPLES_OK), c, sql);
++	PQclear(r);
++}
++static void
++functional(PGconn *c)
++{
++	char		a[] = {'h', 'e'};	/* Intentionally no trailing NUL. */
++	char		b[] = {'l', 'l', 'o'};
++	PQbuffer	segs[] = {{a, sizeof(a)}, {NULL, 0}, {b, sizeof(b)}};
++	PQborrowedParam p = {segs, 3, 0, 0};
++	PGresult   *r;
++	Oid			bytea_oid = 17;
++
++	require(PQsendQueryParamsBorrowed(c, "SELECT $1::text", 1, NULL, &p, 0), c, "fragmented text");
++	expect(c, "hello");
++	r = PQprepare(c, "borrowed_test", "SELECT $1::text", 1, NULL);
++	require(r && PQresultStatus(r) == PGRES_COMMAND_OK, c, "prepare");
++	PQclear(r);
++	require(PQsendQueryPreparedBorrowed(c, "borrowed_test", 1, &p, 0), c, "prepared text");
++	expect(c, "hello");
++	p.isnull = 1;
++	require(PQsendQueryParamsBorrowed(c, "SELECT ($1::text IS NULL)::text", 1, NULL, &p, 0), c, "null");
++	expect(c, "true");
++	p.isnull = 0;
++	p.nsegments = 0;
++	require(PQsendQueryPreparedBorrowed(c, "borrowed_test", 1, &p, 0), c, "empty");
++	expect(c, "");
++	p.nsegments = 1;
++	p.format = 1;
++	segs[0].data = "\0\xff";
++	segs[0].len = 2;
++	require(PQsendQueryParamsBorrowed(c, "SELECT encode($1,'hex')", 1, &bytea_oid, &p, 0), c, "binary");
++	expect(c, "00ff");
++	{
++		PQbuffer	label = {"label", 5};
++		PQborrowedParam mixed[] = {p, {&label, 1, 0, 0}};
++		Oid			types[] = {17, 25};
++
++		require(PQsendQueryParamsBorrowed(c, "SELECT encode($1,'hex') || ':' || $2::text", 2, types, mixed, 0), c, "mixed parameter formats");
++		expect(c, "00ff:label");
++		mixed[1].isnull = 1;
++		require(PQsendQueryParamsBorrowed(c, "SELECT encode($1,'hex') || ':' || coalesce($2::text,'null')", 2, types, mixed, 0), c, "mixed NULL");
++		expect(c, "00ff:null");
++	}
++	require(PQsendQueryParamsBorrowed(c, "SELECT $1::bytea", 1, &bytea_oid, &p, 1), c, "binary result");
++	flush_all(c);
++	r = PQgetResult(c);
++	require(r && PQresultStatus(r) == PGRES_TUPLES_OK && PQgetlength(r, 0, 0) == 2 && memcmp(PQgetvalue(r, 0, 0), "\0\xff", 2) == 0, c, "binary result bytes");
++	PQclear(r);
++	require(PQgetResult(c) == NULL, c, "binary result complete");
++	p.format = 0;
++	require(!PQsendQueryPreparedBorrowed(c, "borrowed_test", 1, &p, 0), c, "reject text NUL");
++	segs[0].data = "x";
++	p.nsegments = SIZE_MAX;
++	require(!PQsendQueryPreparedBorrowed(c, "borrowed_test", 1, &p, 0), c, "reject descriptor count overflow");
++	p.nsegments = 1;
++	segs[0].len = (size_t) INT_MAX + 1;
++	require(!PQsendQueryPreparedBorrowed(c, "borrowed_test", 1, &p, 0), c, "reject oversized parameter");
++	segs[0].len = 1;
++	segs[0].data = NULL;
++	require(!PQsendQueryPreparedBorrowed(c, "borrowed_test", 1, &p, 0), c, "reject null pointer");
++	segs[0].data = "x";
++	p.format = 2;
++	require(!PQsendQueryPreparedBorrowed(c, "borrowed_test", 1, &p, 0), c, "reject format");
++	require(!PQsendQueryParamsBorrowed(c, "SELECT 1", -1, NULL, NULL, 0), c, "reject count");
++	exec_ok(c, "SELECT 1");
++	p.format = 0;
++	p.nsegments = 1;
++	{
++		FILE	   *trace = tmpfile();
++
++		require(trace != NULL, c, "trace file");
++		PQtrace(c, trace);
++		require(PQsendQueryPreparedBorrowed(c, "borrowed_test", 1, &p, 0), c, "trace fallback");
++		expect(c, "x");
++		PQuntrace(c);
++		require(ftell(trace) > 0, c, "trace output");
++		fclose(trace);
++	}
++}
++static void
++pipeline(PGconn *c)
++{
++	PQbuffer	s = {"hello", 5};
++	PQborrowedParam p = {&s, 1, 0, 0};
++	int			tuples = 0,
++				fatal = 0,
++				aborted = 0,
++				sync = 0;
++
++	require(PQenterPipelineMode(c), c, "enter pipeline");
++	require(PQsendQueryParams(c, "SELECT 'legacy-before'", 0, NULL, NULL, NULL, NULL, 0), c, "legacy before");
++	require(PQsendQueryPreparedBorrowed(c, "borrowed_test", 1, &p, 0), c, "pipeline prepared");
++	require(PQsendQueryParams(c, "SELECT 'legacy-after'", 0, NULL, NULL, NULL, NULL, 0), c, "legacy after");
++	require(PQsendQueryParamsBorrowed(c, "SELECT $1::text", 1, NULL, &p, 0), c, "pipeline params");
++	require(PQsendQueryParams(c, "SELECT 1/0", 0, NULL, NULL, NULL, NULL, 0), c, "pipeline error");
++	require(PQsendQueryPreparedBorrowed(c, "borrowed_test", 1, &p, 0), c, "pipeline skipped");
++	require(PQpipelineSync(c), c, "sync");
++	flush_all(c);
++	while (!sync)
++	{
++		PGresult   *r = PQgetResult(c);
++
++		if (!r)
++			continue;
++		switch (PQresultStatus(r))
++		{
++			case PGRES_TUPLES_OK:
++				tuples++;
++				break;
++			case PGRES_FATAL_ERROR:
++				fatal++;
++				break;
++			case PGRES_PIPELINE_ABORTED:
++				aborted++;
++				break;
++			case PGRES_PIPELINE_SYNC:
++				sync++;
++				break;
++			default:
++				require(0, c, "pipeline status");
++		}
++		PQclear(r);
++	}
++	require(PQgetResult(c) == NULL && PQexitPipelineMode(c), c, "exit pipeline");
++	require(tuples == 4 && fatal == 1 && aborted == 1, c, "pipeline ordering/counts");
++	exec_ok(c, "SELECT 1");
++}
++
++/* Force genuine partial writes while the backend executes the first query. */
++static void
++mixed_partial(PGconn *c)
++{
++	const size_t bytes = 8 * 1024 * 1024;
++	char	   *body = malloc(bytes + 1);
++	const char *values[1];
++	char		tailbytes[] = {'o', 'k'};
++	PQbuffer	segment = {tailbytes, 2};
++	PQborrowedParam p = {&segment, 1, 0, 0};
++	int			sync = 0,
++				index = 0,
++				size = 1024;
++	const char *expected[] = {"", "8388608", "ok", "legacy-tail"};
++
++	require(body != NULL, c, "mixed allocation");
++	memset(body, 'x', bytes);
++	body[bytes] = 0;
++	values[0] = body;
++	setsockopt(PQsocket(c), SOL_SOCKET, SO_SNDBUF, &size, sizeof(size));
++	require(PQsetnonblocking(c, 1) == 0 && PQenterPipelineMode(c), c, "mixed pipeline");
++	require(PQsendQueryParams(c, "SELECT pg_sleep(0.5)", 0, NULL, NULL, NULL, NULL, 0), c, "mixed blocker");
++	flush_all(c);
++	require(PQsendQueryParams(c, "SELECT length($1::text)", 1, NULL, values, NULL, NULL, 0), c, "large legacy");
++	memset(body, 0xa5, bytes);
++	free(body);					/* Legacy input may be reclaimed immediately. */
++	require(c->outCount > 0 && PQflush(c) == 1, c, "pending legacy write");
++	require(PQsendQueryParamsBorrowed(c, "SELECT $1::text", 1, NULL, &p, 0), c, "borrow after legacy retry");
++	require(PQsendQueryParams(c, "SELECT 'legacy-tail'", 0, NULL, NULL, NULL, NULL, 0), c, "mixed tail");
++	require(PQpipelineSync(c), c, "mixed sync");
++	flush_all(c);
++	memset(tailbytes, 0xa5, sizeof(tailbytes));
++	require(PQsetnonblocking(c, 0) == 0, c, "mixed blocking");
++	while (!sync)
++	{
++		PGresult   *r = PQgetResult(c);
++
++		if (!r)
++			continue;
++		if (PQresultStatus(r) == PGRES_PIPELINE_SYNC)
++			sync = 1;
++		else
++		{
++			require(PQresultStatus(r) == PGRES_TUPLES_OK && index < 4 && strcmp(PQgetvalue(r, 0, 0), expected[index++]) == 0, c, "mixed ordering");
++		}
++		PQclear(r);
++	}
++	require(index == 4 && PQgetResult(c) == NULL && PQexitPipelineMode(c), c, "mixed complete");
++}
++
++static void
++pending(PGconn *c, const char *conninfo, int mode)
++{
++	const size_t bytes = 8 * 1024 * 1024,
++				count = 256;
++	char	   *data = mmap(NULL, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
++	PQbuffer   *segments = calloc(count, sizeof(*segments));
++	PQborrowedParam p = {segments, count, 0, 0};
++	size_t		i,
++				borrowed = 0,
++				owned = 0;
++	int			size = 1024;
++	PGBorrowedOutput *part;
++
++	require(data != MAP_FAILED && segments, c, "allocate payload");
++	memset(data, 'x', bytes);
++	setsockopt(PQsocket(c), SOL_SOCKET, SO_SNDBUF, &size, sizeof(size));
++	require(PQsetnonblocking(c, 1) == 0 && PQenterPipelineMode(c), c, "pending pipeline");
++	require(PQsendQueryParams(c, "SELECT pg_sleep(0.5)", 0, NULL, NULL, NULL, NULL, 0), c, "backend blocker");
++	flush_all(c);
++	for (i = 0; i < count; i++)
++	{
++		segments[i].data = data + i * (bytes / count);
++		segments[i].len = bytes / count;
++	}
++	require(PQsendQueryParamsBorrowed(c, "SELECT length($1::text)", 1, NULL, &p, 0), c, "large borrowed");
++	memset(segments, 0xa5, count * sizeof(*segments));
++	free(segments);				/* libpq owns descriptors. */
++	require(PQflush(c) == 1, c, "forced pending flush");
++	for (part = c->borrowHead; part; part = part->next)
++	{
++		if (part->owned)
++			owned += part->len;
++		else
++		{
++			require((uintptr_t) part->data >= (uintptr_t) data &&
++					(uintptr_t) part->data + part->len <= (uintptr_t) data + bytes, c, "original payload pointer");
++			borrowed += part->len - part->offset;
++		}
++	}
++	require(borrowed > 65536 && owned < 4096, c, "payload is borrowed, metadata is bounded");
++	if (mode == 0)
++	{
++		int			sync = 0,
++					length_seen = 0;
++
++		require(PQpipelineSync(c), c, "large sync");
++		flush_all(c);
++		require(!c->borrowHead, c, "queue fully released");
++		require(mprotect(data, bytes, PROT_NONE) == 0, c, "poison flushed payload");
++		require(PQsetnonblocking(c, 0) == 0, c, "large blocking mode");
++		while (!sync)
++		{
++			PGresult   *r = PQgetResult(c);
++
++			if (!r)
++				continue;
++			if (PQresultStatus(r) == PGRES_PIPELINE_SYNC)
++				sync = 1;
++			else
++			{
++				require(PQresultStatus(r) == PGRES_TUPLES_OK, c, "large result status");
++				if (strcmp(PQgetvalue(r, 0, 0), "8388608") == 0)
++					length_seen++;
++			}
++			PQclear(r);
++		}
++		require(length_seen == 1 && PQgetResult(c) == NULL && PQexitPipelineMode(c), c, "large result");
++		PQfinish(c);
++	}
++	else if (mode == 1)
++	{
++		PQreset(c);
++		require(PQstatus(c) == CONNECTION_OK && !c->borrowHead, c, "reset releases pending buffers");
++		require(mprotect(data, bytes, PROT_NONE) == 0, c, "poison reset payload");
++		require(PQsetnonblocking(c, 0) == 0, c, "reset blocking mode");
++		exec_ok(c, "SELECT 1");
++		PQfinish(c);
++	}
++	else if (mode == 2)
++	{
++		PQfinish(c);
++		require(mprotect(data, bytes, PROT_NONE) == 0, NULL, "poison finished payload");
++	}
++	else
++	{
++		PGconn	   *killer = PQconnectdb(conninfo);
++		char		sql[100];
++
++		require(PQstatus(killer) == CONNECTION_OK, killer, "killer connection");
++		snprintf(sql, sizeof(sql), "SELECT pg_terminate_backend(%d)", PQbackendPID(c));
++		exec_ok(killer, sql);
++		PQfinish(killer);
++		/* PQflush errors alone do not permit reclaiming data. */
++		PQflush(c);
++		PQfinish(c);
++		require(mprotect(data, bytes, PROT_NONE) == 0, NULL, "poison disconnected payload");
++	}
++	munmap(data, bytes);
++}
++static void
++small_pipeline(PGconn *c)
++{
++	char		body[256];
++	PQbuffer	s = {body, sizeof(body)};
++	PQborrowedParam p = {&s, 1, 0, 0};
++	int			i,
++				tuples = 0,
++				sync = 0;
++
++	memset(body, 'x', sizeof(body));
++	require(PQenterPipelineMode(c), c, "small pipeline");
++	for (i = 0; i < 64; i++)
++		require(PQsendQueryParamsBorrowed(c, "SELECT octet_length($1::text)", 1, NULL, &p, 0), c, "small queued query");
++	require(c->borrowBytes < 8192, c, "small pipeline auto-flushes accumulated output");
++	require(PQpipelineSync(c), c, "small sync");
++	flush_all(c);
++	require(!c->borrowHead && c->borrowBytes == 0, c, "small queue released");
++	while (!sync)
++	{
++		PGresult   *r = PQgetResult(c);
++
++		if (!r)
++			continue;
++		if (PQresultStatus(r) == PGRES_PIPELINE_SYNC)
++			sync = 1;
++		else
++		{
++			require(PQresultStatus(r) == PGRES_TUPLES_OK && strcmp(PQgetvalue(r, 0, 0), "256") == 0, c, "small result");
++			tuples++;
++		}
++		PQclear(r);
++	}
++	require(tuples == 64 && PQgetResult(c) == NULL && PQexitPipelineMode(c), c, "small pipeline complete");
++}
++
++static void
++allocation_failures(const char *conninfo)
++{
++#ifdef __linux__
++	int			caught = 0;
++	int			tracing,
++				failure;
++
++	if (!libpq_test_fail_alloc)
++	{
++		require(getenv("LIBPQ_TEST_SHORT_WRITES") == NULL, NULL, "allocation shim was loaded");
++		return;
++	}
++	for (tracing = 0; tracing < 2; tracing++)
++		for (failure = 0; failure < 32; failure++)
++		{
++			PGconn	   *c = PQconnectdb(conninfo);
++			PQbuffer	segments[8];
++			PQborrowedParam p = {segments, 8, 0, 0};
++			FILE	   *trace = tracing ? tmpfile() : NULL;
++			int			sent,
++						sync = 0,
++						tuples = 0,
++						i;
++
++			require(PQstatus(c) == CONNECTION_OK, c, "allocation test connection");
++			if (trace)
++				PQtrace(c, trace);
++			for (i = 0; i < 8; i++)
++			{
++				segments[i].data = "abcdefgh" + i;
++				segments[i].len = 1;
++			}
++			require(PQenterPipelineMode(c), c, "allocation pipeline");
++			require(PQsendQueryParams(c, "SELECT 'prefix'", 0, NULL, NULL, NULL, NULL, 0), c, "allocation prefix");
++			libpq_test_fail_alloc(failure);
++			sent = PQsendQueryParamsBorrowed(c, "SELECT $1::text", 1, NULL, &p, 0);
++			libpq_test_fail_alloc(-1);
++			if (!sent)
++			{
++				caught++;
++				require(!c->borrowHead, c, "failed submission retains no references");
++			}
++			if (PQstatus(c) == CONNECTION_OK)
++			{
++				require(PQpipelineSync(c), c, "allocation sync");
++				flush_all(c);
++				while (!sync)
++				{
++					PGresult   *r = PQgetResult(c);
++
++					if (!r)
++						continue;
++					if (PQresultStatus(r) == PGRES_PIPELINE_SYNC)
++						sync = 1;
++					else
++					{
++						require(PQresultStatus(r) == PGRES_TUPLES_OK, c, "constructor failure did not publish partial message");
++						tuples++;
++					}
++					PQclear(r);
++				}
++				require(tuples == 1 + sent && PQgetResult(c) == NULL && PQexitPipelineMode(c), c, "allocation result count");
++			}
++			if (trace)
++			{
++				PQuntrace(c);
++				fclose(trace);
++			}
++			PQfinish(c);
++		}
++	require(caught >= 5, NULL, "allocation failure injection exercised constructors");
++	fprintf(stderr, "allocation failures exercised: %d\n", caught);
++#endif
++}
++
++int
++main(int argc, char **argv)
++{
++	PGconn	   *c;
++	int			i;
++
++	require(argc >= 2, NULL, "connection string required");
++	c = PQconnectdb(argv[1]);
++	require(PQstatus(c) == CONNECTION_OK, c, "connect");
++	functional(c);
++	pipeline(c);
++	small_pipeline(c);
++	mixed_partial(c);
++	PQfinish(c);
++	for (i = 0; i < 4; i++)
++	{
++		c = PQconnectdb(argv[1]);
++		require(PQstatus(c) == CONNECTION_OK, c, "pending connect");
++		pending(c, argv[1], i);
++	}
++	allocation_failures(argv[1]);
++	puts("{\"passed\":true,\"cases\":[\"parameters\",\"prepared\",\"binary\",\"null-empty\",\"validation\",\"trace\",\"mixed-pipeline-abort\",\"backpressure\",\"flush-release\",\"reset\",\"finish\",\"disconnect\"]}");
++	return 0;
++}
+diff --git a/src/interfaces/libpq/test/meson.build b/src/interfaces/libpq/test/meson.build
+index e203486615..707141e58d 100644
+--- a/src/interfaces/libpq/test/meson.build
++++ b/src/interfaces/libpq/test/meson.build
+@@ -39,4 +39,21 @@ libpq_test_deps += executable('libpq_testclient',
+   }
+ )
+ 
++if host_system != 'windows'
++  executable('bench_borrowed', files('bench_borrowed.c'),
++    dependencies: [frontend_no_fe_utils_code, libpq],
++    kwargs: default_bin_args + {'install': false},
++  )
++  libpq_test_deps += executable('libpq_borrowed',
++    files('libpq_borrowed.c'),
++    dependencies: [frontend_no_fe_utils_code, libpq],
++    kwargs: default_bin_args + {'install': false},
++  )
++endif
++
++if host_system == 'linux'
++  libpq_test_deps += shared_module('borrowed_faults', files('borrowed_faults.c'),
++    name_prefix: '', dependencies: [cc.find_library('dl')], install: false,
++  )
++endif
+ testprep_targets += libpq_test_deps
+diff --git a/src/tools/pgindent/typedefs.list b/src/tools/pgindent/typedefs.list
+index bf07eafc3b..1ab2ec3296 100644
+--- a/src/tools/pgindent/typedefs.list
++++ b/src/tools/pgindent/typedefs.list
+@@ -2082,6 +2082,8 @@ PQEnvironmentOption
+ PQExpBuffer
+ PQExpBufferData
+ PQauthDataHook_type
++PQborrowedParam
++PQbuffer
+ PQcommMethods
+ PQconninfoOption
+ PQnoticeProcessor

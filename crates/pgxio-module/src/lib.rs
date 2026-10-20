@@ -1,14 +1,20 @@
 //! pgxio alpha: single-threaded application state inside each Nginx worker.
 //! Callbacks never finalize requests while holding WORKER: finalization invokes
-//! request cleanup synchronously. Only copied data crosses that boundary.
+//! request cleanup synchronously. Borrowed input is detached before pool cleanup.
 mod auth;
+mod buffer;
+#[cfg(feature = "borrowed-libpq")]
+mod borrowed;
 mod config;
 mod contract;
 mod db;
 mod ffi;
+mod input;
+mod output;
 mod ws;
 
 use auth::{Auth, Claims};
+use buffer::{BufferMode, PlaintextPool};
 use config::Config;
 use contract::Contract;
 use db::{Connection, Event, Job};
@@ -30,7 +36,7 @@ static CTX: ngx_http_module_t = ngx_http_module_t {
     preconfiguration: None,
     postconfiguration: None,
     create_main_conf: Some(ffi::pgx_create_conf),
-    init_main_conf: None,
+    init_main_conf: Some(ffi::pgx_init_conf),
     create_srv_conf: None,
     merge_srv_conf: None,
     create_loc_conf: None,
@@ -58,13 +64,16 @@ struct Waiting {
     deadline: Option<Instant>,
 }
 struct Worker {
+    plaintext_pool: PlaintextPool,
+    #[cfg(feature = "benchmark-auth")]
+    buffer_stats: [u64; 3],
     config: Config,
     contract: Contract,
     auth: Auth,
     url: CString,
-    input: Vec<Arc<jsonschema::Validator>>,
-    output: Vec<Arc<jsonschema::Validator>>,
-    stream_input: Vec<Arc<jsonschema::Validator>>,
+    input: Vec<Option<Arc<jsonschema::Validator>>>,
+    output: Vec<Option<Arc<jsonschema::Validator>>>,
+    stream_input: Vec<Option<Arc<jsonschema::Validator>>>,
     db: Vec<Connection>,
     http: HashMap<u64, Pending>,
     ws: HashMap<u64, ws::Client>,
@@ -74,6 +83,7 @@ struct Worker {
 }
 enum Action {
     Reply(Request, i32, Value),
+    RawReply(Request, Vec<u8>),
     Close(Request),
     Arm(Request, bool, bool),
 }
@@ -97,6 +107,11 @@ fn run(f: impl FnOnce(&mut Worker) -> Vec<Action>) {
                     if finalized.insert(r) {
                         let body = v.to_string();
                         ffi::pgx_reply(r, s, body.as_ptr(), body.len());
+                    }
+                }
+                Action::RawReply(r, body) => {
+                    if finalized.insert(r) {
+                        ffi::pgx_reply(r, 200, body.as_ptr(), body.len());
                     }
                 }
                 Action::Close(r) => {
@@ -123,13 +138,62 @@ fn error(code: &str) -> Value {
     json!({"error":{"code":code}})
 }
 
+#[repr(C)]
+pub struct ConfigString {
+    len: usize,
+    data: *const u8,
+}
+#[repr(C)]
+pub struct ConfigDirective {
+    name: ConfigString,
+    count: usize,
+    args: *const ConfigString,
+}
+unsafe fn config_text(s: &ConfigString) -> Result<String, String> {
+    if s.len == 0 {
+        return Ok(String::new());
+    }
+    std::str::from_utf8(std::slice::from_raw_parts(s.data, s.len))
+        .map(str::to_owned)
+        .map_err(|_| "configuration must be UTF-8".into())
+}
 #[no_mangle]
-pub unsafe extern "C" fn pgx_init(path: *const u8, len: usize) -> i32 {
+pub unsafe extern "C" fn pgx_config_new(
+    raw: *const ConfigDirective,
+    count: usize,
+) -> *mut config::Settings {
+    let parse = || -> Result<config::Settings, String> {
+        let mut directives = Vec::new();
+        for d in std::slice::from_raw_parts(raw, count) {
+            let args = std::slice::from_raw_parts(d.args, d.count)
+                .iter()
+                .map(|s| config_text(s))
+                .collect::<Result<Vec<_>, _>>()?;
+            directives.push((config_text(&d.name)?, args));
+        }
+        config::Settings::parse(&directives)
+    };
+    match parse() {
+        Ok(settings) => Box::into_raw(Box::new(settings)),
+        Err(e) => {
+            eprintln!("pgxio configuration: {e}");
+            std::ptr::null_mut()
+        }
+    }
+}
+#[no_mangle]
+pub unsafe extern "C" fn pgx_config_free(settings: *mut config::Settings) {
+    if !settings.is_null() {
+        drop(Box::from_raw(settings));
+    }
+}
+#[no_mangle]
+pub unsafe extern "C" fn pgx_init(settings: *const config::Settings) -> i32 {
     let init = || -> Result<Worker, String> {
-        let path = std::str::from_utf8(std::slice::from_raw_parts(path, len))
-            .map_err(|e| e.to_string())?;
-        let config = Config::load(path)?;
-        let contract = Contract::load(&config.contract).map_err(|e| e.to_string())?;
+        let config::Settings {
+            config,
+            routes: contract,
+        } = (*settings).clone();
         let mut auth = Auth::new(
             config.issuer.clone(),
             config.audience.clone(),
@@ -152,17 +216,35 @@ pub unsafe extern "C" fn pgx_init(path: *const u8, len: usize) -> i32 {
         let input = contract
             .endpoints
             .iter()
-            .map(|e| compile(&e.input))
+            .map(|e| {
+                if config.validate_rest_input {
+                    compile(&e.input).map(Some)
+                } else {
+                    Ok(None)
+                }
+            })
             .collect::<Result<_, _>>()?;
         let output = contract
             .endpoints
             .iter()
-            .map(|e| compile(&e.output))
+            .map(|e| {
+                if config.validate_output {
+                    compile(&e.output).map(Some)
+                } else {
+                    Ok(None)
+                }
+            })
             .collect::<Result<_, _>>()?;
         let stream_input = contract
             .streams
             .iter()
-            .map(|e| compile(&e.input))
+            .map(|e| {
+                if config.validate_rest_input {
+                    compile(&e.input).map(Some)
+                } else {
+                    Ok(None)
+                }
+            })
             .collect::<Result<_, _>>()?;
         let db = (0..=config.pool_size)
             .map(|id| {
@@ -171,10 +253,14 @@ pub unsafe extern "C" fn pgx_init(path: *const u8, len: usize) -> i32 {
                     id == config.pool_size,
                     config.db_prepared_statements,
                     config.db_pipeline,
+                    config.libpq_buf,
                 )
             })
             .collect();
         Ok(Worker {
+            plaintext_pool: PlaintextPool::default(),
+            #[cfg(feature = "benchmark-auth")]
+            buffer_stats: [0; 3],
             config,
             contract,
             auth,
@@ -207,6 +293,10 @@ pub extern "C" fn pgx_exit() {
     // Nginx may exit as soon as only cancelable timers remain. Explicitly close
     // held requests before dropping Rust state; OS process exit is not cleanup.
     run(|w| {
+        // PQfinish must stop using request buffers before Nginx frees pools.
+        for connection in &mut w.db {
+            connection.disconnect();
+        }
         w.ws.values()
             .map(|c| Action::Close(c.request))
             .chain(w.http.values().map(|p| Action::Close(p.request)))
@@ -228,6 +318,7 @@ pub unsafe extern "C" fn pgx_start(r: Request) -> isize {
     // cleanup path; NGX_DONE releases the core handler reference.
     ffi::pgx_hold(r);
     let mut body = false;
+    let mut single_body = true;
     run(|w| {
         let origin = ffi::header(r, "origin");
         if !origin.is_empty() {
@@ -247,6 +338,12 @@ pub unsafe extern "C" fn pgx_start(r: Request) -> isize {
             return vec![Action::Reply(r, 204, Value::Null)];
         }
         match (method.as_str(), uri.as_str()) {
+            #[cfg(feature = "benchmark-auth")]
+            ("GET", "/__pgxio_buffers") => return vec![Action::Reply(r, 200, json!({
+                "copy": w.buffer_stats[0], "borrowed": w.buffer_stats[1],
+                "auto_copied": w.buffer_stats[2],
+                "plaintext": w.plaintext_pool.all_plaintext(w.config.pool_size)
+            }))],
             ("GET", "/healthz") => return vec![Action::Reply(r, 200, json!({"status":"ok"}))],
             ("GET", "/readyz") => {
                 return vec![Action::Reply(
@@ -314,6 +411,7 @@ pub unsafe extern "C" fn pgx_start(r: Request) -> isize {
                 claims,
             },
         );
+        single_body = w.input_mode() == BufferMode::Copy;
         body = true;
         vec![]
     });
@@ -321,7 +419,7 @@ pub unsafe extern "C" fn pgx_start(r: Request) -> isize {
         // read_client_request_body owns another reference. Release our explicit
         // hold first; the body callback may immediately complete the request.
         release_hold(r);
-        let rc = ffi::pgx_read_body(r);
+        let rc = ffi::pgx_read_body(r, single_body.into());
         if rc >= 300 {
             return rc;
         }
@@ -335,37 +433,81 @@ unsafe fn release_hold(r: Request) {
     pgx_release_hold(r);
 }
 
+unsafe fn request_input(
+    r: Request,
+    client: u64,
+    mode: BufferMode,
+) -> Result<input::Input, input::Error> {
+    let length = ffi::pgx_body_length(r);
+    if length == -2 || length > input::MAX_BODY as isize {
+        return Err(input::Error::TooLarge);
+    }
+    if length < 0 {
+        return Err(input::Error::InvalidJson);
+    }
+    if mode != BufferMode::Copy {
+        let count = ffi::pgx_body_segments(r, std::ptr::null_mut(), 0);
+        if count < 0 {
+            return Err(input::Error::InvalidJson);
+        }
+        if mode.select(length as usize, count as usize, cfg!(feature = "borrowed-libpq"), false, true) {
+            let mut parts = Vec::with_capacity(count as usize);
+            if ffi::pgx_body_segments(r, parts.as_mut_ptr(), count as usize) != count {
+                return Err(input::Error::InvalidJson);
+            }
+            parts.set_len(count as usize);
+            return input::Input::borrow(client, parts);
+        }
+    }
+    input::copy_body(length, |dst, cap| ffi::pgx_copy_body(r, dst, cap)).map(Into::into)
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn pgx_body(r: Request) {
     ffi::pgx_wait_client(r);
     let id = ffi::pgx_id(r);
-    let mut bytes = vec![0; 65536];
-    let n = ffi::pgx_copy_body(r, bytes.as_mut_ptr(), bytes.len());
+
     run(|w| {
         let Some(p) = w.http.get(&id) else {
             return vec![];
         };
-        let input = if n < 0 {
-            Err(())
-        } else {
-            serde_json::from_slice::<Value>(&bytes[..n as usize]).map_err(|_| ())
+        let input = request_input(
+            r,
+            id,
+            w.input_mode(),
+        )
+        .and_then(|bytes| {
+            if let Some(schema) = &w.input[p.endpoint] {
+                input::check_schema(bytes.owned(), schema)?;
+            }
+            Ok(bytes)
+        });
+        let input = match input {
+            Ok(input) => {
+                #[cfg(feature = "benchmark-auth")]
+                { w.buffer_stats[usize::from(input.borrowed())] += 1; }
+                input
+            },
+            Err(input::Error::TooLarge) => {
+                return vec![Action::Reply(r, 413, error("body_too_large"))]
+            }
+            Err(input::Error::InvalidJson) => {
+                return vec![Action::Reply(r, 400, error("invalid_json"))]
+            }
+            Err(input::Error::InvalidInput) => {
+                return vec![Action::Reply(r, 400, error("invalid_input"))]
+            }
         };
-        let Ok(input) = input else {
-            return vec![Action::Reply(r, 400, error("invalid_json"))];
-        };
-        if !w.input[p.endpoint].is_valid(&input) {
-            return vec![Action::Reply(r, 400, error("invalid_input"))];
-        }
         let e = &w.contract.endpoints[p.endpoint];
         let job = Job {
             client: id,
             subscription: None,
             function: e.function.clone(),
-            input,
+            input: Some(input),
             subject: p.claims.sub.clone(),
             expires: p.claims.exp,
             read_only: e.read_only,
-            output: Some(w.output[p.endpoint].clone()),
+            output: w.output[p.endpoint].clone(),
         };
         if w.queue.is_empty() {
             if let Some(conn) = w.db.iter().position(Connection::idle) {
@@ -394,7 +536,7 @@ pub extern "C" fn pgx_cleanup(id: u64) {
         w.ready_ws.retain(|(client, _)| *client != id);
         let mut events = vec![];
         for c in &mut w.db {
-            if c.client() == Some(id) {
+            if c.references(id) {
                 events.extend(c.cancel());
             }
         }
@@ -454,6 +596,14 @@ pub extern "C" fn pgx_tick() {
 }
 
 impl Worker {
+    fn input_mode(&self) -> BufferMode {
+        if self.config.libpq_buf.may_borrow(cfg!(feature = "borrowed-libpq"),
+            self.config.validate_rest_input, self.plaintext_pool.all_plaintext(self.config.pool_size)) {
+            self.config.libpq_buf
+        } else {
+            BufferMode::Copy
+        }
+    }
     fn listener_ready(&self) -> bool {
         self.db.last().is_some_and(Connection::listening)
     }
@@ -461,6 +611,11 @@ impl Worker {
         let mut actions = vec![];
         for event in events {
             match event {
+                Event::Transport(id, plain) => self.plaintext_pool.update(id, plain),
+                Event::AutoCopied => {
+                    #[cfg(feature = "benchmark-auth")]
+                    { self.buffer_stats[2] += 1; }
+                },
                 Event::Done(job, result) => {
                     if let Some(id) = job.subscription {
                         let Some(c) = self.ws.get_mut(&job.client) else {
@@ -476,7 +631,10 @@ impl Worker {
                         }
                         let key = result
                             .ok()
-                            .and_then(|v| v.as_str().map(str::to_owned))
+                            .and_then(|v| match v {
+                                db::Output::Internal(v) => v.as_str().map(str::to_owned),
+                                _ => None,
+                            })
                             .filter(|s| !s.is_empty() && s.len() <= 128);
                         if key.is_none()
                             || s.key.as_ref().is_some_and(|old| Some(old) != key.as_ref())
@@ -495,11 +653,13 @@ impl Worker {
                             actions.push(Action::Arm(c.request, c.needs_write, false));
                         }
                     } else if let Some(p) = self.http.get(&job.client) {
-                        actions.push(Action::Reply(
-                            p.request,
-                            if result.is_ok() { 200 } else { 503 },
-                            result.unwrap_or_else(|_| error("database_error")),
-                        ));
+                        actions.push(match result {
+                            Ok(db::Output::Http(bytes)) => Action::RawReply(p.request, bytes),
+                            Err(db::Error::InvalidInput) => {
+                                Action::Reply(p.request, 400, error("invalid_input"))
+                            }
+                            _ => Action::Reply(p.request, 503, error("database_error")),
+                        });
                     }
                 }
                 Event::Notify(key) => {
@@ -548,7 +708,7 @@ impl Worker {
                 client,
                 subscription: Some(id),
                 function: self.contract.streams[s.stream].authorize.clone(),
-                input: s.params.clone(),
+                input: Some(CString::new(s.params.to_string()).unwrap().into()),
                 subject: claims.sub.clone(),
                 expires: claims.exp,
                 read_only: true,
@@ -565,7 +725,8 @@ impl Worker {
         for item in waiting {
             if item.job.expires <= wall {
                 if item.job.subscription.is_some() {
-                    actions.extend(self.events(vec![Event::Done(item.job, Err(()))]));
+                    actions
+                        .extend(self.events(vec![Event::Done(item.job, Err(db::Error::Database))]));
                 } else if let Some(p) = self.http.get(&item.job.client) {
                     actions.push(Action::Reply(p.request, 401, error("unauthorized")));
                 }
@@ -587,7 +748,7 @@ impl Worker {
                 };
                 if let Some(job) = job {
                     if job.expires <= wall {
-                        events.push(Event::Done(job, Err(())));
+                        events.push(Event::Done(job, Err(db::Error::Database)));
                     } else {
                         events.extend(self.db[index].start(job));
                     }
@@ -741,7 +902,10 @@ pub extern "C" fn pgx_socket(id: u64) {
                             }
                             let stream = stream.unwrap();
                             let params = v.get("params").cloned().unwrap_or(json!({}));
-                            if !w.stream_input[stream].is_valid(&params) {
+                            if w.stream_input[stream]
+                                .as_ref()
+                                .is_some_and(|schema| !schema.is_valid(&params))
+                            {
                                 c.closing = true;
                                 break;
                             }
