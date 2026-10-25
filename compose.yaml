@@ -1,0 +1,44 @@
+name: pgxio
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: pgxio
+      POSTGRES_PASSWORD: ${PGXIO_ADMIN_PASSWORD:?run bin/pgxio init}
+      PGXIO_WEB_PASSWORD: ${PGXIO_WEB_PASSWORD:?run bin/pgxio init}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/example.sql:/example.sql:ro
+      - ./deploy/init-db.sh:/docker-entrypoint-initdb.d/01-pgxio.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d pgxio"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    networks:
+      backend:
+        ipv4_address: 172.29.87.2
+  api:
+    image: pgxio:dev
+    build: .
+    environment:
+      PGXIO_DATABASE_URL: postgresql://web:${PGXIO_WEB_PASSWORD}@postgres/pgxio?hostaddr=172.29.87.2&sslmode=disable
+      PGXIO_DEV_SECRET: ${PGXIO_DEV_SECRET:?run bin/pgxio init}
+    volumes:
+      - ./examples:/etc/pgxio:ro
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [backend]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    ulimits:
+      nofile: {soft: 8192, hard: 8192}
+    read_only: true
+    tmpfs: ["/tmp:uid=10001,gid=10001,mode=1770"]
+networks:
+  backend:
+    ipam:
+      config: [{subnet: 172.29.87.0/24}]
+volumes:
+  pgdata:

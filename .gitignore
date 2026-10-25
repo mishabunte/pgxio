@@ -1,0 +1,16 @@
+target/
+.cache/
+.venv/
+.venv-bench/
+__pycache__/
+*.pyc
+*.egg-info/
+node_modules/
+.env
+.env.*
+!.env.example
+dist/
+artifacts/
+.pgxio/
+
+/sdk/python/build/

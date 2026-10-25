@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/mishabunte/postgres",
+  "upstream": "https://github.com/postgres/postgres",
+  "branch": "libpq-borrowed-params",
+  "base": "af090508018be5ace443ba6e2814500c10842a4d",
+  "ref": "e7cfc38544bd66dbf4c4417328bb4f263184e887"
+}

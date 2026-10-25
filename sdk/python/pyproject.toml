@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pgxio"
+version = "0.1.0a1"
+description = "SQL endpoint and invalidation subscription client"
+requires-python = ">=3.9"
+dependencies = ["httpx>=0.27,<1", "websockets>=14,<16", "typing-extensions>=4.8"]
+
+[project.optional-dependencies]
+django = ["Django>=4.2,<6"]
+
+[tool.setuptools.packages.find]
+include = ["pgxio*"]

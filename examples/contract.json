@@ -1,0 +1,91 @@
+{
+  "version": 2,
+  "endpoints": [
+    {
+      "name": "list_tasks",
+      "input": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "tasks"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "title",
+                "done"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "create_task",
+      "input": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "done"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "done": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  ],
+  "streams": [
+    {
+      "name": "tasks",
+      "input": {
+        "type": "object",
+        "additionalProperties": false
+      }
+    }
+  ]
+}

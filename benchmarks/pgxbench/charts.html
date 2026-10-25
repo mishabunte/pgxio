@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pgxio benchmark explorer</title>
+<style>
+body{font:16px system-ui,sans-serif;color:#18313c;background:#f5f8f9;margin:0;padding:32px;max-width:1280px;margin:auto}
+h1{font-size:28px}label{display:inline-block;margin:8px 18px 12px 0}select{font:inherit;padding:6px;border:1px solid #9ab0ba;border-radius:4px;background:white}
+svg{background:white;border:1px solid #d7e2e6;width:100%;height:auto}table{border-collapse:collapse;width:100%;margin-top:18px;background:white}td,th{text-align:left;padding:8px;border-bottom:1px solid #d7e2e6}.note{color:#536c78;max-width:900px}#legend span{display:inline-block;margin:12px}text{font:13px system-ui,sans-serif;fill:#536c78}
+[hidden]{display:none!important}
+#panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.panel{background:white;border:1px solid #d7e2e6;border-radius:8px;padding:16px;min-width:0}
+.panel h2{font-size:18px;margin:0 0 6px}.panel p{font-size:14px;margin:6px 0;color:#536c78}
+.panel svg{border:0}.chart-scroll{overflow-x:auto}.table-scroll{overflow-x:auto}
+#legend{margin:8px 0}#legend span{margin:8px 20px 8px 0}#legend span::before{content:'●';margin-right:7px}
+@media(max-width:700px){body{padding:16px}#panels{grid-template-columns:1fr}.panel{padding:12px}label{margin-right:10px}select{max-width:100%}}
+</style>
+<h1>pgxio benchmark explorer</h1>
+<p class="note">Bars show the median of matching trials; whiskers show their minimum–maximum range. Failed loads remain included and are flagged. Compare matching workloads and settings; these comparisons do not imply feature parity. Full raw data and exact failures are in summary.json.</p>
+<label>Stage <select id="stage"></select></label>
+<label>Nginx <select id="nginx"></select></label>
+<label>Workload <select id="workload"></select></label>
+<label>Pool <select id="pool"></select></label>
+<label>Rate <select id="rate"></select></label>
+<label>Transport <select id="transport"></select></label>
+<label>Database TLS <select id="databasetls"></select></label>
+<label>Engine <select id="engine"></select></label>
+<label>Auth <select id="auth"></select></label>
+<label>Fixture <select id="fixture"></select></label>
+<label>JWT cache <select id="jwtcache"></select></label>
+<label>Output validation <select id="outputvalidation"></select></label>
+<label>Input validation <select id="inputvalidation"></select></label>
+<label>Request bytes <select id="requestbytes"></select></label>
+<label>View <select id="view"><option value="bars">Comparison bars</option><option value="scatter">Raw trial scatter</option></select></label>
+<label id="x-control" hidden>X <select id="x"><option value="cpus">vCPUs</option><option value="connections">HTTP connections</option><option value="sockets">Sockets</option><option value="memory_mib">Service RAM limit (MiB)</option></select></label>
+<label>Y <select id="y"><option value="success_rps">Successful requests/sec</option><option value="http_p95_ms">HTTP p95 (ms)</option><option value="http_p99_ms">HTTP p99 (ms)</option><option value="notify_p99_ms">Notification p99 (ms)</option><option value="fresh_p99_ms">Fresh data p99 (ms)</option><option value="api_pss_mib">API PSS (MiB)</option><option value="api_pss_bytes_mean">API mean PSS (bytes)</option><option value="api_cpu_percent_mean">API mean CPU %</option><option value="database_cpu_percent_mean">DB mean CPU %</option><option value="host_load1_mean">Mean host load1</option><option value="api_cpu_ms_per_success">API CPU ms/success</option></select></label>
+<label><input type="checkbox" id="valid"> Valid Linux resource evidence only</label>
+<div id="legend"></div><p id="status" class="note" aria-live="polite"></p>
+<div id="panels"></div>
+<svg hidden id="plot" viewBox="0 0 1000 450" role="img" aria-label="Benchmark trial scatter plot"></svg>
+<div class="table-scroll"><table><thead><tr><th>Exact profile</th><th>Trials</th><th>Load passes</th><th id="median-heading">RPS median</th><th id="range-heading">RPS range</th></tr></thead><tbody id="table"></tbody></table></div>
+<script id="data" type="application/json">DATA_PLACEHOLDER</script>
+<script>
+'use strict';
+const rows=JSON.parse(document.getElementById('data').textContent),by=id=>document.getElementById(id),ns='http://www.w3.org/2000/svg';
+const colors=['#007f86','#b74a35','#6256a6','#2f7c43','#98661c','#bd4079'];
+const filters=[['stage','performance_profile'],['nginx','nginx_profile'],['workload','workload'],['pool','pool_mode'],['rate','offered_background_rate'],['transport','transport'],['databasetls','database_tls'],['engine','engine'],['auth','auth_mode'],['fixture','auth_fixture'],['jwtcache','jwt_cache'],['inputvalidation','rest_input_validation'],['outputvalidation','output_validation'],['requestbytes','request_bytes']];
+const finite=v=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v));
+const format=v=>v===null?'N/A':Number(v).toLocaleString('en-US',{maximumFractionDigits:Math.abs(v)>0&&Math.abs(v)<1?4:2});
+const series=r=>`${r.target} / ${r.performance_profile}`;
+const seriesNames=[...new Set(rows.map(series))].sort();
+const colorFor=r=>colors[seriesNames.indexOf(series(r))%colors.length];
+const scenarioKeys=['workload','request_bytes','database_tls','connections'];
+const settingKeys=['cpus','workers','nginx_profile','pool_mode','pool_total','memory_mib','offered_background_rate','sockets','subscriptions','transport','engine','auth_mode','auth_fixture','jwt_cache','rest_input_validation','load_threads'];
+for(const [id,key] of filters){
+ const all=document.createElement('option');all.value='*';all.textContent='All';by(id).append(all);
+ for(const value of [...new Set(rows.map(r=>r[key]))].sort()){const option=document.createElement('option');option.value=String(value);option.textContent=String(value);by(id).append(option)}
+}
+// Pick a useful numeric axis once; subsequent redraws preserve the user's choice.
+const varyingAxis=[...by('x').options].find(o=>new Set(rows.map(r=>r[o.value]).filter(finite)).size>1);
+if(varyingAxis)by('x').value=varyingAxis.value;
+function element(tag,parent,text){const e=document.createElement(tag);if(text!==undefined)e.textContent=text;parent.append(e);return e}
+function svg(parent,tag,attrs,text){const e=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,v);if(text!==undefined)e.textContent=text;parent.append(e);return e}
+function metric(r,key){const v=key==='api_pss_mib'?r.api_pss_bytes:r[key];return finite(v)?Number(v)/(key==='api_pss_mib'?1048576:1):null}
+function stats(trials,key){
+ const values=trials.map(r=>metric(r,key)).filter(v=>v!==null).sort((a,b)=>a-b),n=values.length;
+ return {n,median:n?(values[Math.floor((n-1)/2)]+values[Math.floor(n/2)])/2:null,min:n?values[0]:null,max:n?values[n-1]:null};
+}
+function scenario(r){return `${r.workload} · ${format(r.request_bytes??null)} request bytes · DB TLS ${r.database_tls} · ${r.connections??'N/A'} connections`}
+function profileLabel(r){return `${series(r)} / ${scenario(r)} / ${settingKeys.map(k=>`${k}=${r[k]??'N/A'}`).join(', ')} / ${r.profile_id.slice(0,8)}`}
+function grid(plot,width,height,max){
+ const left=72,right=width-20,top=36,bottom=height-100;
+ for(let i=0;i<=4;i++){
+  const y=bottom-(bottom-top)*i/4;
+  svg(plot,'line',{x1:left,x2:right,y1:y,y2:y,stroke:'#e5edef'});
+  svg(plot,'text',{x:left-8,y:y+4,'text-anchor':'end'},format(max*i/4));
+ }
+ svg(plot,'line',{x1:left,x2:right,y1:bottom,y2:bottom,stroke:'#607b87'});
+ return {left,right,top,bottom,y:v=>bottom-(bottom-top)*v/max};
+}
+function draw(){
+ const selected=rows.filter(r=>filters.every(([id,key])=>by(id).value==='*'||String(r[key])===by(id).value)&&(!by('valid').checked||r.resource_evidence_valid));
+ const key=by('y').value,metricName=by('y').selectedOptions[0].textContent,bars=by('view').value==='bars';
+ for(const id of ['plot','panels','legend','table'])by(id).replaceChildren();
+ by('plot').toggleAttribute('hidden',bars);by('panels').hidden=!bars;by('x-control').hidden=bars;
+ by('median-heading').textContent=`${metricName}: trial median`;by('range-heading').textContent='Trial min–max';
+ const groups=new Map();
+ for(const r of selected){if(!groups.has(r.profile_id))groups.set(r.profile_id,[]);groups.get(r.profile_id).push(r)}
+ const profiles=[...groups.entries()].map(([id,trials])=>({id,trials,first:trials[0],...stats(trials,key)})).sort((a,b)=>series(a.first).localeCompare(series(b.first))||a.id.localeCompare(b.id));
+ const available=selected.filter(r=>metric(r,key)!==null),maximum=available.reduce((max,r)=>Math.max(max,metric(r,key)),0),ymax=(maximum||1)*1.15;
+ for(const name of seriesNames.filter(name=>selected.some(r=>series(r)===name))){const label=element('span',by('legend'),name);label.style.color=colors[seriesNames.indexOf(name)%colors.length]}
+ for(const p of profiles){
+  const tr=element('tr',by('table'));tr.dataset.profile=p.id;
+  for(const text of [profileLabel(p.first),p.trials.length,p.trials.filter(r=>r.workload_passed).length,format(p.median),p.n?`${format(p.min)}–${format(p.max)}`:'N/A'])element('td',tr,text);
+ }
+ if(bars){
+  const scenarios=new Map();
+  for(const p of profiles){const id=JSON.stringify(scenarioKeys.map(k=>p.first[k]??null));if(!scenarios.has(id))scenarios.set(id,[]);scenarios.get(id).push(p)}
+  for(const [id,group] of [...scenarios.entries()].sort(([a],[b])=>a.localeCompare(b,undefined,{numeric:true}))){
+   const panel=element('section',by('panels'));panel.className='panel';panel.dataset.scenario=id;
+   element('h2',panel,scenario(group[0].first));
+   element('p',panel,`${metricName} · median and trial range`);
+   const scroll=element('div',panel);scroll.className='chart-scroll';
+   const width=Math.max(480,group.length*136+92),height=360;
+   const plot=svg(scroll,'svg',{viewBox:`0 0 ${width} ${height}`,role:'img','aria-label':`${scenario(group[0].first)}: ${metricName}`});
+   // Large generic reports scroll within a panel instead of shrinking labels indefinitely.
+   if(group.length>3)plot.style.minWidth=`${width}px`;
+   const axes=grid(plot,width,height,ymax),step=(axes.right-axes.left)/group.length;
+   group.forEach((p,index)=>{
+    const cx=axes.left+step*(index+.5),color=colorFor(p.first),passed=p.trials.filter(r=>r.workload_passed).length;
+    if(p.n){
+     const bar=svg(plot,'rect',{x:cx-step*.28,y:axes.y(p.median),width:step*.56,height:axes.bottom-axes.y(p.median),fill:color,opacity:passed===p.trials.length?1:.55,'data-profile':p.id,'data-median':p.median,'data-min':p.min,'data-max':p.max});
+     svg(bar,'title',{},`${profileLabel(p.first)}\nMedian ${format(p.median)}; range ${format(p.min)}–${format(p.max)}; ${p.n}/${p.trials.length} measured; ${passed}/${p.trials.length} load passes`);
+     svg(plot,'line',{x1:cx,x2:cx,y1:axes.y(p.max),y2:axes.y(p.min),stroke:'#18313c','stroke-width':2});
+     for(const v of [p.min,p.max])svg(plot,'line',{x1:cx-7,x2:cx+7,y1:axes.y(v),y2:axes.y(v),stroke:'#18313c','stroke-width':2});
+     svg(plot,'text',{x:cx,y:axes.y(p.max)-9,'text-anchor':'middle'},format(p.median));
+    }else svg(plot,'text',{x:cx,y:axes.bottom-15,'text-anchor':'middle'},'N/A');
+    const stage=p.first.performance_profile,target=p.first.target;
+    svg(plot,'text',{x:cx,y:axes.bottom+21,'text-anchor':'middle'},target);
+    svg(plot,'text',{x:cx,y:axes.bottom+39,'text-anchor':'middle'},stage.startsWith(target+'-')?stage.slice(target.length+1):stage);
+    svg(plot,'text',{x:cx,y:axes.bottom+58,'text-anchor':'middle'},`${p.trials.length} trials · ${passed} pass`);
+    if(p.n!==p.trials.length)svg(plot,'text',{x:cx,y:axes.bottom+76,'text-anchor':'middle'},`${p.n} measured`);
+    if(group.filter(q=>series(q.first)===series(p.first)).length>1){
+     svg(plot,'text',{x:cx,y:axes.bottom+94,'text-anchor':'middle'},p.id.slice(0,8));
+     element('p',panel,`${stage} (${p.id.slice(0,8)}): ${settingKeys.map(k=>`${k}=${p.first[k]??'N/A'}`).join(', ')}`);
+    }
+   });
+   const differing=settingKeys.filter(k=>new Set(group.map(p=>JSON.stringify(p.first[k]))).size>1);
+   if(differing.length)element('p',panel,`Settings differ: ${differing.join(', ')}. See exact profiles below before comparing.`);
+  }
+ }else{
+  const x=by('x').value,points=available.filter(r=>finite(r[x])),plot=by('plot'),axes=grid(plot,1000,450,ymax);
+  const xs=points.map(r=>Number(r[x])),xmin=xs.length?Math.min(...xs):0,xmax=xs.length?Math.max(...xs):0;
+  const constant=xmin===xmax,scale=constant?1:(xmax||1);
+  for(let i=0;i<=4;i++){
+   if(constant&&i!==2)continue;
+   svg(plot,'text',{x:axes.left+(axes.right-axes.left)*i/4,y:axes.bottom+25,'text-anchor':'middle'},format(constant?xmin:scale*i/4));
+  }
+  svg(plot,'text',{x:525,y:425,'text-anchor':'middle'},by('x').selectedOptions[0].textContent+(constant?' (constant in this selection)':''));
+  for(const r of points){const c=svg(plot,'circle',{cx:constant?(axes.left+axes.right)/2:axes.left+(axes.right-axes.left)*Number(r[x])/scale,cy:axes.y(metric(r,key)),r:5,fill:r.workload_passed?colorFor(r):'white',stroke:colorFor(r),'stroke-width':2});svg(c,'title',{},JSON.stringify(r,null,2))}
+ }
+ const failures=selected.filter(r=>!r.workload_passed).length;
+ by('status').textContent=selected.length?`${selected.length} trials; ${profiles.length} exact profiles; ${available.length} have this metric; ${failures} failed loads. ${bars?'Bars summarize matching profiles only.':'Filled markers passed load targets; hollow markers failed.'} No percentile values have been averaged. Latency bars show medians of trial percentiles, not a combined percentile.`:'No trials match these filters.';
+ if(selected.length&&!available.length)by('status').textContent+=' This metric is unavailable for the selected trials.';
+}
+for(const select of document.querySelectorAll('select,input'))select.addEventListener('change',draw);draw();
+</script></html>

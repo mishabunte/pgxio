@@ -1,0 +1,52 @@
+name: experimental-borrowed-libpq
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  borrowed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install isolated test clients
+        run: |
+          python3 -m venv .venv-bench
+          .venv-bench/bin/pip install -r benchmarks/requirements.txt './sdk/python[django]'
+      - name: Build patched client and module
+        run: |
+          docker build --target libpq -f Dockerfile.libpq-borrowed -t pgxio-libpq:borrowed .
+          docker build -f Dockerfile.libpq-borrowed --build-arg CARGO_FEATURES=borrowed-libpq,benchmark-auth -t pgxio:borrowed-libpq .
+      - name: C ownership and write-fault contracts
+        run: .venv-bench/bin/python tests/run-libpq.py --faults
+      - name: Full module regression suite and copied compatibility
+        run: |
+          .venv-bench/bin/python tests/run-isolated.py --image pgxio:borrowed-libpq --libpq-buf borrowed --production --suite all --output artifacts/borrowed-validation/raw
+          .venv-bench/bin/python tests/run-isolated.py --image pgxio:borrowed-libpq --libpq-buf borrowed --production --input-validation schema --output-validation schema --suite all --output artifacts/borrowed-validation/schema
+          .venv-bench/bin/python tests/run-isolated.py --image pgxio:borrowed-libpq --libpq-buf copy --production --suite all --output artifacts/borrowed-validation/copy
+          for profile in sequential unprepared cache failfast; do
+            .venv-bench/bin/python tests/run-isolated.py --image pgxio:borrowed-libpq --libpq-buf borrowed --profile "$profile" --suite all --output "artifacts/borrowed-validation/$profile"
+          done
+      - name: Automatic selection, plaintext and TLS
+        run: |
+          .venv-bench/bin/python tests/run-isolated.py --image pgxio:borrowed-libpq --libpq-buf auto --suite all --output artifacts/borrowed-validation/auto-plain
+          .venv-bench/bin/python tests/run-isolated.py --image pgxio:borrowed-libpq --libpq-buf auto --production --suite all --output artifacts/borrowed-validation/auto-tls
+      - name: Pending-flush cleanup, HTTP/2, reload and shutdown
+        run: |
+          docker run --rm -v "$PWD/patches/libpq:/tests:ro" -v "$PWD/artifacts:/out" pgxio-libpq:borrowed cc -shared -fPIC /tests/test_faults.c -ldl -o /out/libpq-test-faults.so
+          .venv-bench/bin/python tests/run-isolated.py --image pgxio:borrowed-libpq --libpq-buf borrowed --production --fault-library artifacts/libpq-test-faults.so --suite input --output artifacts/borrowed-validation/faults
+      - name: C sanitizers
+        run: |
+          docker build --target libpq -f Dockerfile.libpq-borrowed --build-arg LIBPQ_SANITIZERS=address,undefined -t pgxio-libpq:borrowed-asan .
+          .venv-bench/bin/python tests/run-libpq.py --image pgxio-libpq:borrowed-asan --sanitized --output artifacts/libpq-validation-asan
+      - name: Tooling tests
+        run: .venv-bench/bin/python -m unittest discover -s benchmarks/tests -q
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: borrowed-libpq-evidence
+          path: |
+            artifacts/borrowed-validation/**/outcomes.json
+            artifacts/borrowed-validation/**/*.log
+            artifacts/libpq-validation*/outcomes.json
+            artifacts/libpq-validation*/*.log

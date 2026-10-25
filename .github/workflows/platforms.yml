@@ -1,0 +1,41 @@
+name: native-platform-compatibility
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    name: ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.libpq }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [debian13, ubuntu24.04, ubuntu26.04, freebsd14.5, freebsd15.1]
+        arch: [amd64, arm64]
+        libpq: [system, borrowed]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install host test clients
+        run: |
+          python3 -m venv .venv-platform
+          .venv-platform/bin/pip install -r benchmarks/requirements.txt './sdk/python[django]'
+      - name: Validate build and runtime
+        run: >-
+          .venv-platform/bin/python scripts/test-platforms.py --execute
+          --os '${{ matrix.os }}' --arch '${{ matrix.arch }}'
+          --libpq '${{ matrix.libpq }}' --output artifacts/platform-validation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.libpq }}
+          path: |
+            artifacts/platform-validation/RESULTS.md
+            artifacts/platform-validation/source.json
+            artifacts/platform-validation/dependencies.json
+            artifacts/platform-validation/outcomes.json
+            artifacts/platform-validation/cells/**/*.log
+            artifacts/platform-validation/cells/**/build.json
+            artifacts/platform-validation/cells/**/stages.json
+            artifacts/platform-validation/cells/**/outcomes.json
+            artifacts/platform-validation/cells/**/packages.txt
