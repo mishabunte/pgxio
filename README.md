@@ -6,10 +6,12 @@ A small SQL-first REST and WebSocket backend, implemented as a Rust Nginx dynami
 module with nonblocking libpq. Publish explicit PostgreSQL functions, authenticate
 requests with JWTs, and subscribe to authorized invalidation signals.
 
-**Experimental source preview.** This is not a production-ready release. The
-publication snapshot has not been built or tested. Platform validation is pending;
-there are no release binaries, published SDK packages, or supported-platform claims.
-All GitHub workflows are manual until validation is completed.
+**Experimental source preview.** This is not a production-ready release.
+Six Linux ARM64 platform cells have passed: Debian 13 and Ubuntu 24.04/26.04,
+with stock and patched libpq. FreeBSD and amd64 validation remain incomplete;
+see the [tested revision and platform status](docs/platform-support.md).
+There are no release binaries or published SDK packages. All GitHub workflows
+remain manual while validation continues.
 
 ## Early performance results
 

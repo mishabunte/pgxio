@@ -1,21 +1,45 @@
 # Native builds and platform validation
 
-**Source preview: the complete matrix is unverified.** No OS/CPU combination is
-certified by this publication. Earlier Debian ARM64 debug runs exercised stock and
-patched clients, plaintext/TLS and minimal runtime images, but do not constitute a
-complete release gate. FreeBSD kernel boot was demonstrated; full FreeBSD builds
-and functional suites remain pending. The snapshot contains runner fixes that
-have not been tested.
+**Partial validation: six of twenty combinations passed.** The tested source
+is [127c82b](https://github.com/mishabunte/pgxio/commit/127c82b), with experimental
+libpq pinned to `e7cfc38544bd66dbf4c4417328bb4f263184e887`. This documentation-only
+update does not change those build/test inputs. These are functional compatibility
+results, not production certification, performance measurements or minimum-RAM claims.
 
 ## Validation targets
 
-| OS | CPU | Clients | Status |
+| OS | amd64 stock / patched | ARM64 stock | ARM64 patched |
 |---|---|---|---|
-| Debian 13 | amd64, arm64 | stock, patched | Pending |
-| Ubuntu 24.04 LTS | amd64, arm64 | stock, patched | Pending |
-| Ubuntu 26.04 LTS | amd64, arm64 | stock, patched | Pending |
-| FreeBSD 14.5 | amd64, arm64 | stock, patched | Pending |
-| FreeBSD 15.1 | amd64, arm64 | stock, patched | Pending |
+| Debian 13 | Pending / Pending | Passed | Passed |
+| Ubuntu 24.04 LTS | Pending / Pending | Passed | Passed |
+| Ubuntu 26.04 LTS | Pending / Pending | Passed | Passed |
+| FreeBSD 14.5 | Pending / Pending | Blocked | Blocked |
+| FreeBSD 15.1 | Pending / Pending | Blocked | Blocked |
+
+The six Linux cells passed production builds and smoke checks, all six functional
+suites over plaintext and verified TLS, schema-enabled TLS, and minimal read-only
+runtime image checks. Patched cells additionally passed C ownership/allocation/write
+fault tests over plaintext and TLS and sequential, unprepared, JWT-cache and fail-fast
+profiles. The C fault tests exercised 19 allocation failures on each transport.
+
+Source fingerprint used by all six passing cells:
+`b2e9bee21d3e7483445c018c2afa63f6f6d5c6ccb8c72b4cad8f5fc056fe28ba`.
+Stored per-cell build, package and outcome hashes were rechecked before this update.
+Raw logs, fixture credentials and machine-specific artifacts remain local.
+
+## Remaining blockers
+
+FreeBSD ARM64 bootstrap encountered an unavailable rustup installer. A local
+standalone-toolchain change installed the exact Rust/Cargo 1.99.1 release and
+successfully built Nginx. The following Rust adapter build then exposed a missing
+ports-header include path (`pcre2.h`). Those tooling fixes are being verified and
+are not included in this documentation-only update. No complete FreeBSD cell has
+passed yet.
+
+The first full run stopped before amd64 when host free space fell below the
+12 GiB starting guard. A small read-only amd64 container did execute successfully,
+but this is only an emulator preflight, not an amd64 platform pass. Validation
+continues locally; changed source fingerprints require new matching evidence.
 
 Twenty combinations are required. Linux uses distribution containers; FreeBSD
 boots its own kernel in QEMU through a pinned AnyVM wrapper. Emulation establishes
@@ -38,7 +62,7 @@ These commands compile and run embedded Rust checks. They produce `bin/nginx`,
 Adapt the supplied deployment configuration to the installed paths. Build Nginx
 and module together; arbitrary distro Nginx binaries are outside this matrix.
 
-## Running the gate later
+## Running the gate
 
 Install host clients into a venv using `benchmarks/requirements.txt` and
 `./sdk/python[django]`. Docker, Buildx, Compose and network access are required.
