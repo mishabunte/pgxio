@@ -35,6 +35,7 @@ jobs:
             artifacts/platform-validation/outcomes.json
             artifacts/platform-validation/cells/**/*.log
             artifacts/platform-validation/cells/**/build.json
+            artifacts/platform-validation/cells/**/share/pgxio/*.json
             artifacts/platform-validation/cells/**/stages.json
             artifacts/platform-validation/cells/**/outcomes.json
             artifacts/platform-validation/cells/**/packages.txt

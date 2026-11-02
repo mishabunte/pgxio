@@ -8,7 +8,7 @@ all combinations have already passed. See [current evidence](results/platform-su
 ## Native builds
 
 Build Nginx and its module together; an arbitrary distribution Nginx binary is
-not covered by this support claim. Rust 1.99.1, Nginx 1.30.5 and Cargo.lock are
+not covered by this support claim. Rust 1.99.1, Nginx 1.30.6 and Cargo.lock are
 shared across targets. Standard libpq must be version 17 or newer. On Ubuntu,
 use the official PostgreSQL Apt repository if the default client is older.
 FreeBSD uses postgresql17-client/server and the compiler/dependencies from pkg.

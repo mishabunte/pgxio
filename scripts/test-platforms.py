@@ -44,7 +44,7 @@ def freebsd_invocation(manifest,cell,work,cache,command,volume=None,container=No
 
 def source_files():
     names=subprocess.check_output(['git','ls-files','-z','--cached','--others','--exclude-standard'],cwd=ROOT).decode().split('\0')
-    roots={'Cargo.toml','Cargo.lock','crates','scripts','tests','examples','deploy','sql','patches','sdk','benchmarks'}
+    roots={'Cargo.toml','Cargo.lock','bin','crates','scripts','tests','examples','deploy','sql','patches','sdk','benchmarks'}
     return sorted({name for name in names if name and name.split('/')[0] in roots and (ROOT/name).is_file()
                    and 'node_modules' not in Path(name).parts and '__pycache__' not in Path(name).parts
                    and (not name.startswith('benchmarks/') or name=='benchmarks/requirements.txt')
@@ -57,7 +57,7 @@ def fingerprint(files):
 
 
 def evidence_hashes(directory):
-    required=('outcomes.json','stages.json','packages.txt','install/build.json','production/build.json')
+    required=('outcomes.json','stages.json','packages.txt','install/build.json','production/build.json','install/share/pgxio/build.json','install/share/pgxio/runtime.json','production/share/pgxio/build.json','production/share/pgxio/runtime.json')
     if (directory/'runtime/outcomes.json').exists(): required+=('runtime/outcomes.json',)
     if (directory/'runtime-smoke/outcomes.json').exists(): required+=('runtime-smoke/outcomes.json',)
     return {name:hashlib.sha256((directory/name).read_bytes()).hexdigest() for name in required}

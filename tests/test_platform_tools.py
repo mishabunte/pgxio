@@ -68,6 +68,7 @@ class Matrix(unittest.TestCase):
         files=runner.source_files()
         self.assertIn('crates/pgxio-module/src/lib.rs',files)
         self.assertIn('scripts/platforms/matrix.json',files)
+        self.assertIn('bin/pgxio',files)
         for name in files:
             self.assertFalse(name.startswith(('artifacts/','.git/','.pgxio/')))
             self.assertNotIn('node_modules',Path(name).parts)
@@ -78,7 +79,10 @@ class Matrix(unittest.TestCase):
             cell=dict(os='freebsd15.1',arch='arm64',variant='borrowed',id='freebsd15.1-arm64-borrowed')
             actual=dict(cell,passed=True)
             (root/'outcomes.json').write_text(json.dumps(actual))
-            for path in ('stages.json','packages.txt','install/build.json','production/build.json'):
+            for path in ('stages.json','packages.txt','install/build.json','production/build.json',
+                         'install/share/pgxio/build.json','install/share/pgxio/runtime.json',
+                         'production/share/pgxio/build.json','production/share/pgxio/runtime.json'):
+                (root/path).parent.mkdir(parents=True,exist_ok=True)
                 (root/path).write_text('frozen dependency evidence')
             row=dict(cell=cell,passed=True,evidence=str(root),evidence_sha256=runner.evidence_hashes(root))
             self.assertEqual(runner.retained_evidence(row),row)

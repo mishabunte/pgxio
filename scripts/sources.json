@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "nginx": {
+    "version": "1.30.6",
+    "url": "https://nginx.org/download/nginx-1.30.6.tar.gz",
+    "sha256": "3cf46f5ed7504d460125866b7bea99fb357f31d887e2e63b35503310e9b8b6c8",
+    "signature": "https://nginx.org/download/nginx-1.30.6.tar.gz.asc",
+    "signer_fingerprint": "D6786CE303D9A9022998DC6CC8464D549AF75C0A",
+    "key_url": "https://nginx.org/keys/pluknet.key"
+  },
+  "postgres": {
+    "repository": "https://github.com/mishabunte/postgres",
+    "ref": "af090508018be5ace443ba6e2814500c10842a4d",
+    "url": "https://codeload.github.com/mishabunte/postgres/tar.gz/af090508018be5ace443ba6e2814500c10842a4d",
+    "sha256": "a0468fa920621b5955eff592ae4d1a6d59a04695dacd6752970cf854acf512ee",
+    "provenance": "Archive retrieved from the recorded repository commit; no upstream signature asserted."
+  }
+}

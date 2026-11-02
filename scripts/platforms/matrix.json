@@ -1,6 +1,6 @@
 {
   "rust": "1.99.1",
-  "nginx": "1.30.5",
+  "nginx": "1.30.6",
   "vm_runner": "ghcr.io/anyvm-org/anyvm@sha256:57b136734c84c23c7ef5395ce593c60b15912382e03e5df58335bc74c21e1685",
   "freebsd_builder": "2.2.8",
   "oses": {

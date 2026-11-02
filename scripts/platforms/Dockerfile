@@ -12,6 +12,7 @@ COPY crates ./crates
 COPY examples ./examples
 COPY patches ./patches
 COPY scripts ./scripts
+COPY bin ./bin
 COPY tests ./tests
 COPY sql ./sql
 COPY deploy ./deploy

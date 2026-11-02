@@ -45,7 +45,7 @@ def main():
     try:
         execute('build-production',build)
         # Save the production binary/module before the diagnostic-feature rebuild.
-        for name in ('bin','modules','libpq','build.json'):
+        for name in ('bin','modules','libpq','build.json','share'):
             src=prefix/name; dst=output/'production'/name; dst.parent.mkdir(parents=True,exist_ok=True)
             if src.is_dir(): shutil.copytree(src,dst)
             else: shutil.copy(src,dst)

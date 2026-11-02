@@ -1,8 +1,10 @@
 # The module and Nginx must have matching headers and configure options.
 FROM rust:slim-trixie AS build
-ARG NGINX_VERSION=1.30.5
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl ca-certificates git libclang-dev libpcre2-dev libssl-dev zlib1g-dev libpq-dev pkg-config && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz | tar xz -C /tmp && mv /tmp/nginx-${NGINX_VERSION} /nginx
+ARG NGINX_VERSION
+ARG NGINX_SHA256
+RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential curl ca-certificates git libclang-dev libpcre2-dev libssl-dev zlib1g-dev libpq-dev pkg-config && rm -rf /var/lib/apt/lists/*
+COPY scripts/verified_source.py scripts/sources.json /source-tools/
+RUN NGINX_VERSION="$NGINX_VERSION" NGINX_SHA256="$NGINX_SHA256" python3 /source-tools/verified_source.py /tmp/nginx.tar.gz > /tmp/nginx-version && tar xzf /tmp/nginx.tar.gz -C /tmp && mv /tmp/nginx-$(cat /tmp/nginx-version) /nginx
 WORKDIR /nginx
 RUN ./configure --prefix=/usr/local/nginx --with-compat --with-http_ssl_module --with-http_v2_module --with-http_stub_status_module --error-log-path=stderr --http-log-path=/dev/stdout --pid-path=/tmp/nginx.pid --http-client-body-temp-path=/tmp/client_body --http-proxy-temp-path=/tmp/proxy && make -j2
 ENV NGINX_SOURCE_DIR=/nginx NGINX_BUILD_DIR=/nginx/objs
