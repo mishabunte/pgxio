@@ -12,19 +12,18 @@ import tarfile
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
-NGINX = '1.30.5'
+import sys
+sys.path.insert(0, str(ROOT/'scripts'))
+from verified_source import fetch as verified_fetch, prepare_tree
+from inventory import generate as generate_inventory
+NGINX_SOURCE = json.loads((ROOT/'scripts/sources.json').read_text())['nginx']
+NGINX = NGINX_SOURCE['version']
 RUST = '1.99.1'
 
 
 def run(argv, **kw):
     print('+', ' '.join(map(str, argv)), flush=True)
     return subprocess.run(list(map(str, argv)), check=True, **kw)
-
-
-def fetch(url, destination):
-    if not destination.exists():
-        urllib.request.urlretrieve(url, destination)
-    return hashlib.sha256(destination.read_bytes()).hexdigest()
 
 
 def main():
@@ -64,10 +63,23 @@ def main():
     if args.libpq == 'borrowed':
         source = json.loads((ROOT/'patches/libpq/source.json').read_text())
         archive = work/'postgres.tar.gz'
-        metadata['sources']['postgres'] = fetch(f"{source['repository'].replace('https://github.com/', 'https://codeload.github.com/')}/tar.gz/{source['ref']}", archive)
-        postgres = work/('postgres-'+source['ref'])
+        pinned = json.loads((ROOT/'scripts/sources.json').read_text())['postgres']
+        if source['base'] != pinned['ref']: raise ValueError('PostgreSQL source metadata differs')
+        metadata['sources']['postgres'] = verified_fetch(pinned['url'], archive, pinned['sha256'])
+        postgres = work/('postgres-'+source['base'])
+        patch_hashes = {p: hashlib.sha256((ROOT/'patches/libpq'/p).read_bytes()).hexdigest() for p in source['patches']}
+        expected_hashes = {line.split()[-1].lstrip('*'): line.split()[0] for line in (ROOT/'patches/libpq/SHA256SUMS').read_text().splitlines() if line.strip()}
+        if any(expected_hashes.get(p) != h for p,h in patch_hashes.items()): raise ValueError('patch checksum mismatch')
+        diagnostics = {p: hashlib.sha256((ROOT/'patches/libpq'/p).read_bytes()).hexdigest() for p in ('test_alloc.h','test_alloc.c')} if args.diagnostic_allocations else {}
+        marker, identity = prepare_tree(archive, postgres, dict(archive=pinned['sha256'], patches=patch_hashes, diagnostic=diagnostics))
         if not postgres.exists():
             with tarfile.open(archive) as tar: tar.extractall(work, filter='data')
+            for patch in source['patches']:
+                f = ROOT/'patches/libpq'/patch
+                expected = next(line.split()[0] for line in (ROOT/'patches/libpq/SHA256SUMS').read_text().splitlines() if line.split()[-1].lstrip('*') == patch)
+                if hashlib.sha256(f.read_bytes()).hexdigest() != expected: raise ValueError('patch checksum mismatch: '+patch)
+                with f.open('rb') as stream: run(['patch', '-p1'], cwd=postgres, stdin=stream)
+            marker.write_text(identity)
         pq = prefix/'libpq'
         pe = dict(env)
         if args.diagnostic_allocations:
@@ -103,10 +115,12 @@ def main():
         (prefix/'build.json').write_text(json.dumps(metadata,indent=2))
         return
     archive = work/'nginx.tar.gz'
-    metadata['sources']['nginx'] = fetch(f'https://nginx.org/download/nginx-{NGINX}.tar.gz', archive)
+    metadata['sources']['nginx'] = verified_fetch(NGINX_SOURCE['url'], archive, NGINX_SOURCE['sha256'])
     nginx = work/('nginx-'+NGINX)
+    marker, identity = prepare_tree(archive, nginx, NGINX_SOURCE)
     if not nginx.exists():
         with tarfile.open(archive) as tar: tar.extractall(work, filter='data')
+        marker.write_text(identity)
     options = [f'--prefix={prefix}', '--with-compat', '--with-http_ssl_module', '--with-http_v2_module', '--with-http_stub_status_module', '--error-log-path=stderr', '--http-log-path=/dev/stdout', '--pid-path=/tmp/nginx.pid', '--http-client-body-temp-path=/tmp/client_body', '--http-proxy-temp-path=/tmp/proxy']
     if platform.system() == 'FreeBSD': options += ['--with-cc-opt=-I/usr/local/include', '--with-ld-opt=-L/usr/local/lib']
     run(['./configure', *options], cwd=nginx, env=env)
@@ -127,8 +141,9 @@ def main():
     metadata.update(features=features, nginx=NGINX, rust=RUST,
                     elf_machine=expected,
                     pg_config=subprocess.check_output(['pg_config', '--version'], text=True).strip())
-    if args.libpq=='borrowed': metadata.update(borrowed_base=source['base'], borrowed_ref=source['ref'])
+    if args.libpq=='borrowed': metadata['borrowed_base']=source['base']
     (prefix/'build.json').write_text(json.dumps(metadata, indent=2)+'\n')
+    generate_inventory(ROOT, prefix, metadata, env)
 
 
 if __name__ == '__main__': main()

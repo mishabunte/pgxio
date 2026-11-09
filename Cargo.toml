@@ -1,5 +1,6 @@
 [workspace]
 members = ["crates/pgxio-module"]
+exclude = ["experiments/standalone"]
 resolver = "2"
 
 [profile.release]

@@ -1,5 +1,7 @@
 .git
 target
+legacy
+experiments
 .env*
 .pgxio
 .venv

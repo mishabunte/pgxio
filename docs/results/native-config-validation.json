@@ -1,0 +1,192 @@
+{
+  "runtime_suites": {
+    "final-raw": {
+      "profile": "default",
+      "input_validation": "postgres",
+      "output_validation": "off",
+      "production": true,
+      "borrowed_buffers": false,
+      "fault_injection": false,
+      "image": "pgxio:native-config-release",
+      "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+      "suites": [
+        {
+          "suite": "configuration",
+          "passed": true
+        },
+        {
+          "suite": "integration",
+          "passed": true
+        },
+        {
+          "suite": "performance",
+          "passed": true
+        },
+        {
+          "suite": "input",
+          "passed": true
+        },
+        {
+          "suite": "output",
+          "passed": true
+        }
+      ]
+    },
+    "final-schema": {
+      "profile": "default",
+      "input_validation": "schema",
+      "output_validation": "schema",
+      "production": true,
+      "borrowed_buffers": false,
+      "fault_injection": false,
+      "image": "pgxio:native-config-release",
+      "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+      "suites": [
+        {
+          "suite": "configuration",
+          "passed": true
+        },
+        {
+          "suite": "integration",
+          "passed": true
+        },
+        {
+          "suite": "performance",
+          "passed": true
+        },
+        {
+          "suite": "input",
+          "passed": true
+        },
+        {
+          "suite": "output",
+          "passed": true
+        }
+      ]
+    },
+    "final-borrowed": {
+      "profile": "default",
+      "input_validation": "postgres",
+      "output_validation": "off",
+      "production": true,
+      "borrowed_buffers": true,
+      "fault_injection": false,
+      "image": "pgxio:native-config-borrowed",
+      "image_id": "sha256:7ec547ef717691d8e76cb59589e6a7b1b9d1804cf567053287da625ea388bc81",
+      "suites": [
+        {
+          "suite": "configuration",
+          "passed": true
+        },
+        {
+          "suite": "integration",
+          "passed": true
+        },
+        {
+          "suite": "performance",
+          "passed": true
+        },
+        {
+          "suite": "input",
+          "passed": true
+        },
+        {
+          "suite": "output",
+          "passed": true
+        }
+      ]
+    },
+    "final-unprepared": {
+      "profile": "unprepared",
+      "input_validation": "postgres",
+      "output_validation": "off",
+      "production": false,
+      "borrowed_buffers": false,
+      "fault_injection": false,
+      "image": "pgxio:native-config-release",
+      "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+      "suites": [
+        {
+          "suite": "performance",
+          "passed": true
+        }
+      ]
+    },
+    "final-failfast": {
+      "profile": "failfast",
+      "input_validation": "postgres",
+      "output_validation": "off",
+      "production": false,
+      "borrowed_buffers": false,
+      "fault_injection": false,
+      "image": "pgxio:native-config-release",
+      "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+      "suites": [
+        {
+          "suite": "performance",
+          "passed": true
+        }
+      ]
+    },
+    "sequential": {
+      "profile": "sequential",
+      "input_validation": "postgres",
+      "output_validation": "off",
+      "production": false,
+      "borrowed_buffers": false,
+      "fault_injection": false,
+      "image": "pgxio:native-config-release",
+      "image_id": "sha256:02200c8fdcd9e14a6e870b81d0eb6bf5b2b077c77db66a94eab4d138ff27d7cd",
+      "suites": [
+        {
+          "suite": "performance",
+          "passed": true
+        }
+      ]
+    },
+    "cache": {
+      "profile": "cache",
+      "input_validation": "postgres",
+      "output_validation": "off",
+      "production": true,
+      "borrowed_buffers": false,
+      "fault_injection": false,
+      "image": "pgxio:native-config-release",
+      "image_id": "sha256:02200c8fdcd9e14a6e870b81d0eb6bf5b2b077c77db66a94eab4d138ff27d7cd",
+      "suites": [
+        {
+          "suite": "performance",
+          "passed": true
+        }
+      ]
+    }
+  },
+  "rust_tests": {
+    "normal": {
+      "core": 14,
+      "allocations": 3
+    },
+    "borrowed": {
+      "core": 14,
+      "allocations": 3
+    }
+  },
+  "tooling_tests": 54,
+  "typescript_typecheck": "passed",
+  "generated_typescript_and_python": "match",
+  "source_sha256": {
+    "crates/pgxio-module/native/adapter.c": "fec9ed6646823ed8012282f305fd8ada0c70acb07c80efcd989545da47a4283d",
+    "crates/pgxio-module/src/config.rs": "dafb61d17b06191b5a1e5cef1144d168de606d95a1418882a3e97aa510ecb900",
+    "crates/pgxio-module/src/contract.rs": "a1ace23fe5673816738132a619c044be2f1505063caa4aa59bff477ce7dc4341",
+    "crates/pgxio-module/src/lib.rs": "1cf1b8a51badd8622c9c2fceae3744a9e9cc0ec4c578fbe5febce691a3f43605",
+    "crates/pgxio-module/src/db.rs": "6eb7c777faae4f58cc44a5d8b50fb4184d526e69a41336de640eac2e6437bba3",
+    "crates/pgxio-module/src/output.rs": "45e8bbad2168c1b31ca60dd429397bf89bc3fb3849a052e285e65535a8af452b",
+    "crates/pgxio-module/src/ffi.rs": "88b2ebe29d50ea142dcae451749633c871485be64e1d55530bf1f2fc10310be2"
+  },
+  "notes": [
+    "Cache and sequential profiles passed before the additional HTTP rejected-body fix; other recorded suites used final images.",
+    "Final input suites include a deterministic pipelined HTTP rejection regression, reproduced as 401/400 before the fix and passing as 401/200 afterward.",
+    "An earlier unprepared run exceeded timing bounds on the shared host; the final retry passed without relaxing those bounds.",
+    "C sanitizer and syscall-fault profiles were not rerun; normal borrowed-runtime coverage is included."
+  ]
+}

@@ -1,0 +1,1662 @@
+{
+  "environment": {
+    "kind": "local_performance_comparison",
+    "started_unix": 1792356325.613766,
+    "host": "macOS-26.5.1-arm64-arm-64bit",
+    "docker": {
+      "Architecture": "aarch64",
+      "NCPU": 8,
+      "MemTotal": 6196563968,
+      "KernelVersion": "6.8.0-117-generic",
+      "ServerVersion": "29.5.2",
+      "ContainersRunning": 9
+    },
+    "limitations": [
+      "Shared local host; exploratory repetitions, not a production ranking",
+      "Closed-loop wrk load; no minimum RAM or fixed-rate capacity claim"
+    ],
+    "source_sha256": {
+      "summarize-jwt-cache.py": "36580e06e8f1d7d17fdf1a8ba472c0a29b7e3a5072bd1a9ab5443714ff403813",
+      "requirements.txt": "f78bfdc69af189723c3ff37c4369a8a95959cd5857be26b05ccbdef04eacd68d",
+      "memory-sweep.py": "c414675fd7247e897bb3a5a56e690bf76de248ba2c80e1cb2c265a615696212d",
+      "nginx-baseline.conf": "37686fe850a0db82e92a36a9302d808f3389e8e39eab5cc6f94569ad0eef0b30",
+      "jwt-cache-compare.py": "b3382bf300fdd3e8b1f3bba64086d6940109ddfd6db649e6fc75b5242a83c1b0",
+      "bench.py": "bc19dff84f4c5ff5e24302303d72ed71eb5dd85ed46d9c93bb6ffd65fad8892c",
+      "README.md": "6a6c8166aeff729d90c94845ab1d381c4c277e3534731c010df4492a23acda18",
+      "summarize-synthetic.py": "723e9ce30e79ef38f87d89722b3dc0a562e692c6551193a12e600c04bf222b1e",
+      "PLAN.md": "3b868935a86a9b8491ad2b859697c37b2034844ff1884ec848c590e1371445bc",
+      "run-synthetic.py": "09c39b380eccbf232b680f30fa63f04c7449691fc7ba35c75f0b5e4569c07644",
+      "json-parser/Cargo.toml": "606dfb0b51e539dfaa075a3dd27f6b932b5e8c0b6edfa7560b66f6ce4dad7741",
+      "json-parser/Dockerfile": "620cb988932b7ae9c6159abb1908f1f486dcf83a99248366560408d4b9280dca",
+      "json-parser/Cargo.lock": "94f1b543eb7aaabf74896b514afbaf1d550a07699091fd9129c7580720e2816b",
+      "json-parser/build.rs": "4d615bb405ce933014896d780b3d7896a4519f153a74c9aa61321473ff2bb116",
+      "json-parser/wrapper.c": "d023963d38c3ae9f160837bff0ef03e248b79bdaecdf3901d1c30e91680a8995",
+      "json-parser/README.md": "916ac30e90271f6332d349b1708ed603c17a7e5da9236c2039af9dd0b70a1688",
+      "pgxbench/input_compare.py": "57fc5b507e740dd7c2f0be79c4665cba7bb3621935b22214294566d6c9fe5053",
+      "pgxbench/validation_compare.py": "063746a95890671164470dbb4ad229d1a31d5d046af61fceefead16a58074987",
+      "pgxbench/resource_worker.py": "08fb2a40a7c72ce217a4a088b8d9b12eb2dd2ddba5ac66938aba030298f85f7e",
+      "pgxbench/libpq_report.py": "7f1db15d9370a8cf3ebfc3ba0e62df79beed0d528b7dc2e2a39f50c84c750ee8",
+      "pgxbench/operator.py": "ce6364e222330185c1615280c13fa33342d87e0fcbf4868f494489997abd3b54",
+      "pgxbench/__init__.py": "ffaf05cf18254c2ca4009c65c686b6164b7c4d87fe2e68ebe6b60235c6f576e0",
+      "pgxbench/charts.html": "01d08eb2a9d4220917c6f28bb2c3d11ddad1161fd3b76a1c0943da6e223a1d66",
+      "pgxbench/campaign.py": "d0e7f782a6e1f520fa5f55630339255e465f8a609a22b21b31b5fbbb30b53c43",
+      "pgxbench/exercise.py": "3da5382b8cc04a226511ed7f6a265a1a72b91e21fbd096dbe0bde280bb991995",
+      "pgxbench/setup.py": "e67d144155c913f2e1eb3f223555e636b0b265dc36c6cdc0896be690607b45bc",
+      "pgxbench/cli.py": "f0696fe63f6227c4f634912b5662efcc26baec1b09036f913f1ccd83b94e4d2c",
+      "pgxbench/common.py": "6aa51d83bb8acfa555f16fde1ff1f6023db15ccc3cdc462ce3f168c606f9199a",
+      "pgxbench/wrk.py": "b7a934cfd11be74f599fde72acb3799cbb7589870eecce4007e0d6add1eb6d8b",
+      "pgxbench/pgbench.py": "5716ae17347afa782026deea484c3d39d36d4a616a687fa2c419acebace7f1a4",
+      "pgxbench/borrowed_compare.py": "aeabd2b8a906cfc9e4c31727047599adcd177a572673e2ff9854ca9513779893",
+      "pgxbench/resources.py": "d7c640cbda0012984c38ac730f28e1933b53219bc72d8ec05ef7ac4f77e8b8bd",
+      "pgxbench/perf_compare.py": "145692301e18f0ae0bd2f13efb58bc7463039f49f1cf4b69e8440b74f8d9e65a",
+      "pgxbench/verify.py": "6ef9d48cd9121edd886b5b0b304bb61c74b0439b4a843442fb6245175d017463",
+      "pgxbench/load.py": "979106974656e6d70af35e06f05c83a4c1230fd0c21ae425d25ae94baabc095f",
+      "pgxbench/auth_compare.py": "f0b82097cb49b20e875c68d3e7dfd8b360a88cdd3b358b2fa6025bc9e5ec8936",
+      "pgxbench/report.py": "1beaaaafd8699135211dd118c524c76d638905dd7e80e41e517109ffed4b0da2",
+      "pgxbench/fixtures.py": "632e1bb79e0f397979982b3f43e087ab738b87f5aa43245e3a303ab9bacebe02",
+      "tests/test_memory_sweep.py": "f705e390e54ca4570245dd1cb90cb69567b8fee71ba07e205e5177e0f75bd281",
+      "tests/test_jwt_cache_compare.py": "35d982e9f8c4a759483ad117e48e7472e1f9ab2007d91d5782124ee6e6a7b3ef",
+      "tests/charts.browser.js": "bfcf5e6382f0848ec01d23430153104deea871483978c82e5c36ea87b3d83397",
+      "tests/test_synthetic.py": "1d6f909f0a8b87527c7938c4da0f93b2a295f5218dba697d9595c2c66fbffca9",
+      "tests/test_tools.py": "d70ae487a6a5b6d95f8719579b4e2d79abc76e106827e6e9762a2e845c5fa815",
+      "synthetic/Cargo.toml": "98523b16363500d050b6eaddde54bba2e221e8ef48b7862e360be4ec415440e0",
+      "synthetic/validate.c": "773d83eab569bd76172058511518213b3ab84a457066b1f37922582b01fa9932",
+      "synthetic/Dockerfile": "9aa723c357c73f769f1067c958327c43046e0830a0a23a2c5cc989af952f36ae",
+      "synthetic/allocations.c": "826e2a1169ffdd97cb47b7a7e445b2e05f71140e09d362b930bc147210ec04b3",
+      "synthetic/Cargo.lock": "b217877c6efd4e1ed8c027039f36d5a2142f4d8bb6ae73a4566108d71384c744",
+      "synthetic/build.rs": "1a40d57ebf204b67897cba761359269bf5636c8c9c49a6761db8498e0c87a2ce",
+      "synthetic/README.md": "0a715d8b347350dc576ac78b08460f9858859b334308b4d56660be9839124f18",
+      "synthetic/fixture.c": "898a09c25e50975a232bce573f3920cfb6c1048f607a24d86cf5c57dc24c691b",
+      "synthetic/Dockerfile.validation": "a9b3424eac2c2cef9c59dda2b92cee9e2b3b70d7bef4cbb96810cee9ac733f2e",
+      "wrk/workload.lua": "830c0125a64e4a3ed75dda074f078d08f8b03e117b21f1c2ddaf8fcf52bd846b",
+      "wrk/Dockerfile": "565181855493478fd3fab9ba2e4317bc41510ac8530d4363d96ef0cb037e3074",
+      "wrk/monotonic-clock.pl": "926369377b76ee8926cdd1200f222ffeb407cc49afcb3eb67304f47d68b9da10",
+      "sql/init.sql": "47393cd0fb3a7e8fb432a1db8f32af153133b56635fe02311cf76e0b437f91cb",
+      "sql/supabase.sql": "7a9a83b9030aaefaf9758fc2bbff4cc27485edc1c3576ebe12e742b15c2031b1",
+      "sql/public.sql": "3008cc36ebabad9b53b764035b7d62158c712193b34b3590aff7637fa29fe060",
+      "json-parser/vendor/jsmn.h": "c04533e9181e1e33baceb0f55ac449b05145bb936e8c68cc77dfe0d8277514fb",
+      "json-parser/src/main.rs": "c454b1357a4cd21db7be8e188df22473eaf121ac5272c41fe5ca7d35c954d9fc",
+      "synthetic/src/main.rs": "35b69c521ad263fa6ce6bce2e08bee3f0038d0ab261dcd75194e35ca381fe65f",
+      "reference/go/go.mod": "7f213f9f8b34302dfc5629e4b6c054e828f6fc860c9afd35570219a0cb69f1a1",
+      "reference/go/Dockerfile": "40d4a8cb3bba89d16fe22b4728cca7c617e7ae5b58f65787192778ab7636d3b2",
+      "reference/go/go.sum": "b332a073892eb8760870d683ee16c0e17d28b21b5841a3770d2f12f5fc34f878",
+      "reference/go/main.go": "0093973fde5214f2521981dfb73dddaa7ac68af64867b27a6abd61bf8131c543",
+      "reference/openresty/app.lua": "4994102be9250ffe31298d065fc668e1a9e7739411a4a033a23014cf6a1c0e9f",
+      "reference/openresty/Dockerfile": "b338c9c4862109a8469af330e9ec8a69ca7ddd96de82ca6bdf2f6a315d7e3155",
+      "reference/openresty/nginx.conf": "c72da9350b7fda87d30856b5e5db7d4a84d3d7cf0fbd288cbee83c086a865dee",
+      "reference/node/Dockerfile": "9ed90525b911b151072208fd107e39d6d467a91c90188a76c75ed6d05b886e80",
+      "reference/node/package-lock.json": "ebe6b5f1440904f4e9e08832e2fd4ce7e2db6335934c4ec36db9d7847079cab5",
+      "reference/node/package.json": "f70a2973b96fc475f7326dcd2fb97ff29d1fbef8504a2fd706038dd17b95a983",
+      "reference/node/server.mjs": "6b4fd9adf7ac25953d8e41f6402822f9f83e71595f00829da40cf5c1bacbac37"
+    },
+    "finished_unix": 1792356623.085409
+  },
+  "trials": [
+    {
+      "job": {
+        "profile": "both-schemas",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": true,
+          "validate_output": true
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 3,
+        "id": "000"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 35578675.2,
+        "api_rss_bytes": 73564979.2,
+        "api_memory_current_bytes": 30695424.0,
+        "api_cpu_percent": 30.41891395326174,
+        "database_pss_bytes": 49619865.6,
+        "database_rss_bytes": 278775808.0,
+        "database_memory_current_bytes": 56880332.8,
+        "database_cpu_percent": 94.26941692280953,
+        "host_load1": 1.4949999999999999
+      },
+      "successful_rps": 1797.7917286035033,
+      "counts": {
+        "http_200": 18041
+      },
+      "http_latency": {
+        "count": 4144,
+        "p50_ms": 4.132,
+        "p95_ms": 7.229,
+        "p99_ms": 11.312,
+        "max_ms": 30.057
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 169.2015458147128,
+      "output_validation": "schema",
+      "rest_input_validation": "schema",
+      "measured_elapsed_seconds": 10.419219666044228
+    },
+    {
+      "job": {
+        "profile": "raw",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": false,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": false,
+          "validate_output": false
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 2,
+        "id": "001"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 11298816.0,
+        "api_rss_bytes": 25112576.0,
+        "api_memory_current_bytes": 7794278.4,
+        "api_cpu_percent": 22.725448744507357,
+        "database_pss_bytes": 49979596.8,
+        "database_rss_bytes": 277542912.0,
+        "database_memory_current_bytes": 53143961.6,
+        "database_cpu_percent": 97.03739596517848,
+        "host_load1": 2.565
+      },
+      "successful_rps": 2041.193307492366,
+      "counts": {
+        "http_200": 20487
+      },
+      "http_latency": {
+        "count": 2656,
+        "p50_ms": 3.782,
+        "p95_ms": 4.697,
+        "p99_ms": 6.764,
+        "max_ms": 15.094
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 111.33413313227977,
+      "output_validation": "off",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.230744083994068
+    },
+    {
+      "job": {
+        "profile": "output-schema",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": false,
+          "validate_output": true
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 3,
+        "id": "002"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 35518464.0,
+        "api_rss_bytes": 73539584.0,
+        "api_memory_current_bytes": 30819532.8,
+        "api_cpu_percent": 29.663664351740284,
+        "database_pss_bytes": 49530777.6,
+        "database_rss_bytes": 277745664.0,
+        "database_memory_current_bytes": 52940800.0,
+        "database_cpu_percent": 96.48548454328945,
+        "host_load1": 2.923
+      },
+      "successful_rps": 2057.5346432376023,
+      "counts": {
+        "http_200": 20649
+      },
+      "http_latency": {
+        "count": 2671,
+        "p50_ms": 3.733,
+        "p95_ms": 4.69,
+        "p99_ms": 7.019,
+        "max_ms": 30.791
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 144.17091079965232,
+      "output_validation": "schema",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.24587225005962
+    },
+    {
+      "job": {
+        "profile": "baseline",
+        "pgxio_image": "pgxio:native-config-before",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "legacy-json",
+        "module_options": {},
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 3,
+        "id": "003"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 35573760.0,
+        "api_rss_bytes": 47448064.0,
+        "api_memory_current_bytes": 30790451.2,
+        "api_cpu_percent": 36.05945586994322,
+        "database_pss_bytes": 49867468.8,
+        "database_rss_bytes": 277458124.8,
+        "database_memory_current_bytes": 52913766.4,
+        "database_cpu_percent": 90.94645528835804,
+        "host_load1": 3.7380000000000004
+      },
+      "successful_rps": 1461.761418046412,
+      "counts": {
+        "http_200": 14741
+      },
+      "http_latency": {
+        "count": 6397,
+        "p50_ms": 4.388,
+        "p95_ms": 46.033,
+        "p99_ms": 185.327,
+        "max_ms": 324.416
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:724fba23d3d3f81a1ddd11f3cb3d1e31a8b80deb21c2eb7b4b54257381282489",
+            "digests": [
+              "pgxio@sha256:724fba23d3d3f81a1ddd11f3cb3d1e31a8b80deb21c2eb7b4b54257381282489"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": "af090508018be5ace443ba6e2814500c10842a4d"
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 246.68496120341786,
+      "output_validation": "schema",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.322251833043993
+    },
+    {
+      "job": {
+        "profile": "baseline",
+        "pgxio_image": "pgxio:native-config-before",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "legacy-json",
+        "module_options": {},
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 1,
+        "id": "004"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 35584000.0,
+        "api_rss_bytes": 47450112.0,
+        "api_memory_current_bytes": 30700339.2,
+        "api_cpu_percent": 35.192196389122145,
+        "database_pss_bytes": 49070796.8,
+        "database_rss_bytes": 277583462.4,
+        "database_memory_current_bytes": 53107507.2,
+        "database_cpu_percent": 91.76342911036564,
+        "host_load1": 3.75
+      },
+      "successful_rps": 1519.7541148970754,
+      "counts": {
+        "http_200": 15262
+      },
+      "http_latency": {
+        "count": 5343,
+        "p50_ms": 4.574,
+        "p95_ms": 14.297,
+        "p99_ms": 51.531,
+        "max_ms": 271.734
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:724fba23d3d3f81a1ddd11f3cb3d1e31a8b80deb21c2eb7b4b54257381282489",
+            "digests": [
+              "pgxio@sha256:724fba23d3d3f81a1ddd11f3cb3d1e31a8b80deb21c2eb7b4b54257381282489"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": "af090508018be5ace443ba6e2814500c10842a4d"
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 231.5650672971234,
+      "output_validation": "schema",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.462097625015303
+    },
+    {
+      "job": {
+        "profile": "output-schema",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": false,
+          "validate_output": true
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 1,
+        "id": "005"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 35534848.0,
+        "api_rss_bytes": 73527296.0,
+        "api_memory_current_bytes": 30642585.6,
+        "api_cpu_percent": 31.778882534682705,
+        "database_pss_bytes": 49482137.6,
+        "database_rss_bytes": 277066547.2,
+        "database_memory_current_bytes": 53121433.6,
+        "database_cpu_percent": 95.91275904084439,
+        "host_load1": 4.4719999999999995
+      },
+      "successful_rps": 1714.349661222046,
+      "counts": {
+        "http_200": 17219
+      },
+      "http_latency": {
+        "count": 4688,
+        "p50_ms": 4.261,
+        "p95_ms": 8.227,
+        "p99_ms": 21.914,
+        "max_ms": 153.361
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 185.3699000472847,
+      "output_validation": "schema",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.360464832978323
+    },
+    {
+      "job": {
+        "profile": "metadata",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": false,
+          "validate_output": false
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 1,
+        "id": "006"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 35430400.0,
+        "api_rss_bytes": 72765440.0,
+        "api_memory_current_bytes": 30571315.2,
+        "api_cpu_percent": 23.405939944644253,
+        "database_pss_bytes": 49554022.4,
+        "database_rss_bytes": 278448537.6,
+        "database_memory_current_bytes": 53259878.4,
+        "database_cpu_percent": 96.87909686717191,
+        "host_load1": 5.0840000000000005
+      },
+      "successful_rps": 1820.5398963321927,
+      "counts": {
+        "http_200": 18282
+      },
+      "http_latency": {
+        "count": 3974,
+        "p50_ms": 4.088,
+        "p95_ms": 6.465,
+        "p99_ms": 9.39,
+        "max_ms": 29.992
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 128.5659270186814,
+      "output_validation": "off",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.316313249990344
+    },
+    {
+      "job": {
+        "profile": "output-schema",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": false,
+          "validate_output": true
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 2,
+        "id": "007"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 35491840.0,
+        "api_rss_bytes": 73469952.0,
+        "api_memory_current_bytes": 30776115.2,
+        "api_cpu_percent": 31.291752478882334,
+        "database_pss_bytes": 49241702.4,
+        "database_rss_bytes": 276400537.6,
+        "database_memory_current_bytes": 52958822.4,
+        "database_cpu_percent": 95.95921076470147,
+        "host_load1": 5.3950000000000005
+      },
+      "successful_rps": 1776.3366756558348,
+      "counts": {
+        "http_200": 17821
+      },
+      "http_latency": {
+        "count": 4253,
+        "p50_ms": 4.156,
+        "p95_ms": 7.0,
+        "p99_ms": 13.639,
+        "max_ms": 50.401
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 176.15890561584683,
+      "output_validation": "schema",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.279004291980527
+    },
+    {
+      "job": {
+        "profile": "metadata",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": false,
+          "validate_output": false
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 3,
+        "id": "008"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 36209664.0,
+        "api_rss_bytes": 73551872.0,
+        "api_memory_current_bytes": 31218073.6,
+        "api_cpu_percent": 24.3900803971961,
+        "database_pss_bytes": 49969459.2,
+        "database_rss_bytes": 277178368.0,
+        "database_memory_current_bytes": 50457804.8,
+        "database_cpu_percent": 96.58886729228787,
+        "host_load1": 5.061
+      },
+      "successful_rps": 1830.8456442492356,
+      "counts": {
+        "http_200": 18376
+      },
+      "http_latency": {
+        "count": 3922,
+        "p50_ms": 4.095,
+        "p95_ms": 6.331,
+        "p99_ms": 9.27,
+        "max_ms": 24.604
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 133.21756792445277,
+      "output_validation": "off",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.241743333055638
+    },
+    {
+      "job": {
+        "profile": "metadata",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": false,
+          "validate_output": false
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 2,
+        "id": "009"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 35459072.0,
+        "api_rss_bytes": 72792064.0,
+        "api_memory_current_bytes": 30832640.0,
+        "api_cpu_percent": 23.90809368692105,
+        "database_pss_bytes": 49546649.6,
+        "database_rss_bytes": 277722726.4,
+        "database_memory_current_bytes": 49047961.6,
+        "database_cpu_percent": 96.67873352494367,
+        "host_load1": 5.506
+      },
+      "successful_rps": 1811.8034474051262,
+      "counts": {
+        "http_200": 18196
+      },
+      "http_latency": {
+        "count": 4342,
+        "p50_ms": 4.048,
+        "p95_ms": 7.035,
+        "p99_ms": 11.035,
+        "max_ms": 36.567
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 131.95743567638274,
+      "output_validation": "off",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.308203666005284
+    },
+    {
+      "job": {
+        "profile": "baseline",
+        "pgxio_image": "pgxio:native-config-before",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "legacy-json",
+        "module_options": {},
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 2,
+        "id": "010"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 35587165.09090909,
+        "api_rss_bytes": 47473757.09090909,
+        "api_memory_current_bytes": 30700264.727272727,
+        "api_cpu_percent": 36.01824646534239,
+        "database_pss_bytes": 49858001.45454545,
+        "database_rss_bytes": 277204247.27272725,
+        "database_memory_current_bytes": 48651915.63636363,
+        "database_cpu_percent": 88.5154448498728,
+        "host_load1": 5.94
+      },
+      "successful_rps": 1308.7720803765037,
+      "counts": {
+        "http_200": 13177
+      },
+      "http_latency": {
+        "count": 6646,
+        "p50_ms": 5.052,
+        "p95_ms": 21.163,
+        "p99_ms": 107.133,
+        "max_ms": 211.158
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:724fba23d3d3f81a1ddd11f3cb3d1e31a8b80deb21c2eb7b4b54257381282489",
+            "digests": [
+              "pgxio@sha256:724fba23d3d3f81a1ddd11f3cb3d1e31a8b80deb21c2eb7b4b54257381282489"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": "af090508018be5ace443ba6e2814500c10842a4d"
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 275.2064091631659,
+      "output_validation": "schema",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.836653750040568
+    },
+    {
+      "job": {
+        "profile": "raw",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": false,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": false,
+          "validate_output": false
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 3,
+        "id": "011"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 10443980.8,
+        "api_rss_bytes": 24214732.8,
+        "api_memory_current_bytes": 6855884.8,
+        "api_cpu_percent": 25.285170930993928,
+        "database_pss_bytes": 49159065.6,
+        "database_rss_bytes": 277877555.2,
+        "database_memory_current_bytes": 49032396.8,
+        "database_cpu_percent": 95.90470927487029,
+        "host_load1": 6.034999999999999
+      },
+      "successful_rps": 1394.1461168091307,
+      "counts": {
+        "http_200": 14028
+      },
+      "http_latency": {
+        "count": 6371,
+        "p50_ms": 4.912,
+        "p95_ms": 15.089,
+        "p99_ms": 61.027,
+        "max_ms": 142.909
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 181.36672064808874,
+      "output_validation": "off",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.459438291960396
+    },
+    {
+      "job": {
+        "profile": "raw",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": false,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": false,
+          "validate_output": false
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 1,
+        "id": "012"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 10499351.272727273,
+        "api_rss_bytes": 24284439.272727273,
+        "api_memory_current_bytes": 6960965.818181818,
+        "api_cpu_percent": 25.193039746664297,
+        "database_pss_bytes": 48582190.54545455,
+        "database_rss_bytes": 277081367.27272725,
+        "database_memory_current_bytes": 48942731.63636363,
+        "database_cpu_percent": 93.35139391983886,
+        "host_load1": 6.196363636363636
+      },
+      "successful_rps": 1285.7749709666111,
+      "counts": {
+        "http_200": 12988
+      },
+      "http_latency": {
+        "count": 6848,
+        "p50_ms": 5.156,
+        "p95_ms": 22.755,
+        "p99_ms": 51.373,
+        "max_ms": 104.727
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 195.93661655837684,
+      "output_validation": "off",
+      "rest_input_validation": "postgres",
+      "measured_elapsed_seconds": 10.911038041929714
+    },
+    {
+      "job": {
+        "profile": "both-schemas",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": true,
+          "validate_output": true
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 1,
+        "id": "013"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 35559424.0,
+        "api_rss_bytes": 73551872.0,
+        "api_memory_current_bytes": 30512742.4,
+        "api_cpu_percent": 32.26093804424054,
+        "database_pss_bytes": 49605734.4,
+        "database_rss_bytes": 279228825.6,
+        "database_memory_current_bytes": 49082368.0,
+        "database_cpu_percent": 96.19946260949116,
+        "host_load1": 6.254
+      },
+      "successful_rps": 1553.5496126670648,
+      "counts": {
+        "http_200": 15617
+      },
+      "http_latency": {
+        "count": 5500,
+        "p50_ms": 4.572,
+        "p95_ms": 12.447,
+        "p99_ms": 37.676,
+        "max_ms": 112.652
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 207.6595287411285,
+      "output_validation": "schema",
+      "rest_input_validation": "schema",
+      "measured_elapsed_seconds": 10.46518183290027
+    },
+    {
+      "job": {
+        "profile": "both-schemas",
+        "pgxio_image": "pgxio:native-config-release",
+        "target": "pgxio",
+        "contract_enabled": true,
+        "config_format": "nginx-v1",
+        "module_options": {
+          "validate_rest_input": true,
+          "validate_output": true
+        },
+        "workload": "page",
+        "connections": 8,
+        "auth_mode": "jwt",
+        "jwt_cache": "off",
+        "auth_fixture": "public",
+        "cpus": 1,
+        "workers": 1,
+        "database_tls": "verify-full",
+        "rate": 0,
+        "sockets": 0,
+        "subscriptions": 1,
+        "active_tenants": 10,
+        "probe_rate": 1,
+        "realtime_mode": "both",
+        "engine": "wrk",
+        "threads": 2,
+        "wrk_image": "pgxbench-wrk",
+        "wrk_cpuset": "2-3",
+        "duration": 10.0,
+        "warmup": 3.0,
+        "repetition": 2,
+        "id": "014"
+      },
+      "passed": true,
+      "resources": {
+        "api_pss_bytes": 36407296.0,
+        "api_rss_bytes": 74428416.0,
+        "api_memory_current_bytes": 31407718.4,
+        "api_cpu_percent": 31.66469929326774,
+        "database_pss_bytes": 49125068.8,
+        "database_rss_bytes": 276224000.0,
+        "database_memory_current_bytes": 48944332.8,
+        "database_cpu_percent": 96.38979184997257,
+        "host_load1": 6.455
+      },
+      "successful_rps": 1694.7880439900323,
+      "counts": {
+        "http_200": 17026
+      },
+      "http_latency": {
+        "count": 4456,
+        "p50_ms": 4.404,
+        "p95_ms": 7.205,
+        "p99_ms": 11.29,
+        "max_ms": 37.726
+      },
+      "image_lock": {
+        "images": [
+          {
+            "service": "pgxio",
+            "image_id": "sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4",
+            "digests": [
+              "pgxio@sha256:2fa2c498e77b085bc3be61a5a59ead1eeaf075aaeb859b7e9486e9d2a6eeffe4"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "off",
+            "config_format": "nginx-v1",
+            "rest_input_validation_default": "postgres",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          },
+          {
+            "service": "postgres",
+            "image_id": "sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826",
+            "digests": [
+              "postgres@sha256:3645570cccdfa447589da9f57dd740faa29b30938e861289a5574b6ca6b03826"
+            ],
+            "architecture": "arm64",
+            "os": "linux",
+            "output_validation_default": "schema",
+            "config_format": "legacy-json",
+            "rest_input_validation_default": "schema",
+            "borrowed_libpq": "0",
+            "libpq_base": null
+          }
+        ],
+        "requested_versions": {
+          "postgres": "postgres:17.11-bookworm",
+          "postgrest": "postgrest/postgrest:v14.17",
+          "openresty": "openresty/openresty:1.27.1.2-0-bookworm-fat",
+          "nginx": "nginx:1.28.0-bookworm",
+          "node": "node:22.20.0-bookworm-slim",
+          "golang": "golang:1.25.1-bookworm",
+          "debian": "debian:bookworm-slim",
+          "supabase_postgres": "supabase/postgres:17.6.1.136",
+          "realtime": "supabase/realtime:v2.134.10"
+        }
+      },
+      "api_cpu_us_per_success": 186.83574860912796,
+      "output_validation": "schema",
+      "rest_input_validation": "schema",
+      "measured_elapsed_seconds": 10.29287933302112
+    }
+  ]
+}

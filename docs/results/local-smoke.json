@@ -1,0 +1,63 @@
+{
+  "kind": "development smoke; shared Colima host unless run elsewhere",
+  "host": "macOS-26.5.1-arm64-arm-64bit",
+  "concurrency": 4,
+  "requests": 5000,
+  "image": "sha256:03817605a5b7dfb093a3c19374f8f5d4ec34f08d9db4fe61255e6ca48fc78c3d",
+  "image_bytes": 36770496,
+  "rest": {
+    "seconds": 9.091004,
+    "successful_requests_per_second": 549.9942580599459,
+    "statuses": {
+      "200": 5000
+    },
+    "p50_ms": 5.861417000000202,
+    "p95_ms": 15.880625000000315,
+    "p99_ms": 25.06341600000006,
+    "api_cpu_seconds": 1.807001,
+    "before": {
+      "rss_kib": 43848,
+      "pss_kib": 33189,
+      "cgroup_bytes": 28450816,
+      "cpu_usec": 160203
+    },
+    "after": {
+      "rss_kib": 44024,
+      "pss_kib": 33365,
+      "cgroup_bytes": 28643328,
+      "cpu_usec": 1967204
+    }
+  },
+  "websockets": {
+    "count": 100,
+    "subscribed": {
+      "rss_kib": 45404,
+      "pss_kib": 34745,
+      "cgroup_bytes": 30281728,
+      "cpu_usec": 2217025
+    },
+    "incremental_pss_bytes_per_socket": 14131.2,
+    "fanout_p50_ms": 92.49650000000109,
+    "fanout_p99_ms": 150.81162500000113,
+    "fanout_includes": "HTTP write + commit + notify + per-subscription SQL reauthorization"
+  },
+  "plain_nginx_lower_bound": {
+    "rss_kib": 11928,
+    "pss_kib": 4416,
+    "cgroup_bytes": 3923968,
+    "cpu_usec": 127063
+  },
+  "module_incremental_warm_pss_kib": 28773,
+  "postgres": {
+    "rss_kib": 175152,
+    "pss_kib": 41960,
+    "cgroup_bytes": 95444992,
+    "cpu_usec": 499464076
+  },
+  "api_plus_postgres_pss_kib": 75325,
+  "cached_container_restart_to_ready_ms": [
+    707.8511669999994,
+    478.3267500000008,
+    751.1667499999994
+  ]
+}

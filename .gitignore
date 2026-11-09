@@ -10,7 +10,11 @@ node_modules/
 .env.*
 !.env.example
 dist/
-artifacts/
+artifacts/*
+!artifacts/branding/
+artifacts/branding/*
+!artifacts/branding/pgxio-logo-v1.png
+!artifacts/branding/pgxio-logo-v1-prompt.txt
 .pgxio/
 
 /sdk/python/build/

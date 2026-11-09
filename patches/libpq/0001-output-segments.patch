@@ -1,0 +1,312 @@
+diff --git a/src/interfaces/libpq/fe-connect.c b/src/interfaces/libpq/fe-connect.c
+index 2ce128da15..967051c9d2 100644
+--- a/src/interfaces/libpq/fe-connect.c
++++ b/src/interfaces/libpq/fe-connect.c
+@@ -549,6 +549,9 @@ pqDropConnection(PGconn *conn, bool flushInput)
+ 
+ 	/* Always discard any unsent data */
+ 	conn->outCount = 0;
++	pqFreeBorrowedOutput(conn->borrowHead);
++	conn->borrowHead = conn->borrowTail = NULL;
++	conn->borrowBytes = 0;
+ 
+ 	/* Likewise, discard any pending pipelined commands */
+ 	pqFreeCommandQueue(conn->cmd_queue_head);
+@@ -5155,6 +5158,7 @@ freePGconn(PGconn *conn)
+ 	free(conn->be_cancel_key);
+ 	free(conn->inBuffer);
+ 	free(conn->outBuffer);
++	pqFreeBorrowedOutput(conn->borrowHead);
+ 	free(conn->rowBuf);
+ 	termPQExpBuffer(&conn->errorMessage);
+ 	termPQExpBuffer(&conn->workBuffer);
+diff --git a/src/interfaces/libpq/fe-misc.c b/src/interfaces/libpq/fe-misc.c
+index 73d10e5cae..66a74a0df0 100644
+--- a/src/interfaces/libpq/fe-misc.c
++++ b/src/interfaces/libpq/fe-misc.c
+@@ -560,6 +560,9 @@ pqPutMsgEnd(PGconn *conn)
+ 	{
+ 		int			toSend = conn->outCount;
+ 
++		if (conn->borrowHead)
++			return pqFlush(conn) < 0 ? EOF : 0;
++
+ 		/*
+ 		 * On Unix-pipe connections, it seems profitable to prefer sending
+ 		 * pipe-buffer-sized packets not randomly-sized ones, so retain the
+@@ -1139,6 +1142,56 @@ pqSendSome(PGconn *conn, int len)
+ int
+ pqFlush(PGconn *conn)
+ {
++	if (conn->borrowHead)
++	{
++		if (pqSealBorrowedOutput(conn) < 0)
++			return -1;
++		while (conn->borrowHead)
++		{
++			ssize_t		sent;
++
++			if (conn->write_failed || conn->sock == PGINVALID_SOCKET)
++			{
++				pqFreeBorrowedOutput(conn->borrowHead);
++				conn->borrowHead = conn->borrowTail = NULL;
++				conn->borrowBytes = 0;
++				return conn->write_failed ? 0 : -1;
++			}
++			sent = pqsecure_write_segments(conn, conn->borrowHead);
++			if (sent < 0 && SOCK_ERRNO == EINTR)
++				continue;
++			if (sent < 0 && SOCK_ERRNO != EAGAIN && SOCK_ERRNO != EWOULDBLOCK)
++				return -1;
++			if (sent > 0)
++			{
++				while (sent > 0 && conn->borrowHead)
++				{
++					PGBorrowedOutput *part = conn->borrowHead;
++					size_t		consumed = Min((size_t) sent, part->len - part->offset);
++
++					part->offset += consumed;
++					conn->borrowBytes -= consumed;
++					sent -= consumed;
++					if (part->offset == part->len)
++					{
++						conn->borrowHead = part->next;
++						part->next = NULL;
++						pqFreeBorrowedOutput(part);
++						if (!conn->borrowHead)
++							conn->borrowTail = NULL;
++					}
++				}
++				continue;
++			}
++			/* Match pqSendSome's read/write deadlock avoidance. */
++			if (pqReadData(conn) < 0)
++				return -1;
++			if (pqIsnonblocking(conn))
++				return 1;
++			if (pqWait(true, true, conn))
++				return -1;
++		}
++	}
+ 	if (conn->outCount > 0)
+ 	{
+ 		if (conn->Pfdebug)
+@@ -1150,6 +1203,59 @@ pqFlush(PGconn *conn)
+ 	return 0;
+ }
+ 
++/* Borrowed payloads are never freed here. */
++void
++pqFreeBorrowedOutput(PGBorrowedOutput *head)
++{
++	while (head)
++	{
++		PGBorrowedOutput *next = head->next;
++
++		if (head->owned)
++			free(unconstify(char *, head->data));
++		free(head);
++		head = next;
++	}
++}
++
++/* Seal legacy output after any previously queued borrowed message. */
++int
++pqSealBorrowedOutput(PGconn *conn)
++{
++	PGBorrowedOutput *part;
++	char	   *data;
++
++	if (conn->outCount == 0)
++		return 0;
++	if (conn->borrowBytes > UINT64_MAX - conn->outCount)
++	{
++		libpq_append_conn_error(conn, "queued output is too large");
++		return -1;
++	}
++	part = calloc(1, sizeof(*part));
++	data = malloc(conn->outBufSize);
++	if (!part || !data)
++	{
++		free(part);
++		free(data);
++		libpq_append_conn_error(conn, "out of memory");
++		return -1;
++	}
++	/* Move the allocation: an SSL retry may retain its exact address. */
++	part->data = conn->outBuffer;
++	part->len = conn->outCount;
++	part->owned = true;
++	conn->outBuffer = data;
++	if (conn->borrowTail)
++		conn->borrowTail->next = part;
++	else
++		conn->borrowHead = part;
++	conn->borrowTail = part;
++	conn->borrowBytes += conn->outCount;
++	conn->outCount = 0;
++	return 0;
++}
++
+ 
+ /*
+  * pqWait: wait until we can read or write the connection socket
+diff --git a/src/interfaces/libpq/fe-secure.c b/src/interfaces/libpq/fe-secure.c
+index 1a8e2e6746..15b3a0980b 100644
+--- a/src/interfaces/libpq/fe-secure.c
++++ b/src/interfaces/libpq/fe-secure.c
+@@ -26,6 +26,7 @@
+ #include "win32.h"
+ #else
+ #include <sys/socket.h>
++#include <sys/uio.h>
+ #include <unistd.h>
+ #include <netdb.h>
+ #include <netinet/in.h>
+@@ -336,8 +337,9 @@ pqsecure_write(PGconn *conn, const void *ptr, size_t len)
+  * too quick to report a write failure when there's still a possibility to
+  * get a more useful error from the server.
+  */
+-ssize_t
+-pqsecure_raw_write(PGconn *conn, const void *ptr, size_t len)
++static ssize_t
++pqsecure_raw_write_internal(PGconn *conn, const void *ptr, size_t len,
++							PGBorrowedOutput *head)
+ {
+ 	ssize_t		n;
+ 	int			flags = 0;
+@@ -347,6 +349,30 @@ pqsecure_raw_write(PGconn *conn, const void *ptr, size_t len)
+ 
+ 	DECLARE_SIGPIPE_INFO(spinfo);
+ 
++#ifndef WIN32
++	struct iovec iov[16];
++	struct msghdr msg = {0};
++
++	if (head)
++	{
++		int			count = 0;
++
++		len = 0;
++		memset(&msg, 0, sizeof(msg));
++		while (head && count < lengthof(iov) && len < INT_MAX)
++		{
++			size_t		bytes = Min(head->len - head->offset, INT_MAX - len);
++
++			iov[count].iov_base = unconstify(char *, head->data + head->offset);
++			iov[count++].iov_len = bytes;
++			len += bytes;
++			head = head->next;
++		}
++		msg.msg_iov = iov;
++		msg.msg_iovlen = count;
++	}
++#endif
++
+ 	/*
+ 	 * If we already had a write failure, we will never again try to send data
+ 	 * on that connection.  Even if the kernel would let us, we've probably
+@@ -366,7 +392,12 @@ retry_masked:
+ 
+ 	DISABLE_SIGPIPE(conn, spinfo, return -1);
+ 
+-	n = send(conn->sock, ptr, len, flags);
++#ifndef WIN32
++	if (msg.msg_iovlen && ptr == NULL)
++		n = sendmsg(conn->sock, &msg, flags);
++	else
++#endif
++		n = send(conn->sock, ptr, len, flags);
+ 
+ 	if (n < 0)
+ 	{
+@@ -445,6 +476,35 @@ retry_masked:
+ 	return n;
+ }
+ 
++ssize_t
++pqsecure_raw_write(PGconn *conn, const void *ptr, size_t len)
++{
++	return pqsecure_raw_write_internal(conn, ptr, len, NULL);
++}
++
++ssize_t
++pqsecure_write_segments(PGconn *conn, PGBorrowedOutput *head)
++{
++#ifndef WIN32
++	bool		encrypted = false;
++#ifdef USE_SSL
++	encrypted |= conn->ssl_in_use;
++#endif
++#ifdef ENABLE_GSS
++	encrypted |= conn->gssenc;
++#endif
++	if (!encrypted)
++		return pqsecure_raw_write_internal(conn, NULL, 0, head);
++#endif
++	/* Stable pointer and length across SSL/GSS WANT_READ/WANT_WRITE retries. */
++#ifdef WIN32
++	return pqsecure_write(conn, head->data + head->offset,
++						  Min(head->len - head->offset, 65536));
++#else
++	return pqsecure_write(conn, head->data + head->offset, head->len - head->offset);
++#endif
++}
++
+ /* Dummy versions of SSL info functions, when built without SSL support */
+ #ifndef USE_SSL
+ 
+diff --git a/src/interfaces/libpq/libpq-int.h b/src/interfaces/libpq/libpq-int.h
+index 933ba0d99d..82ebe8147b 100644
+--- a/src/interfaces/libpq/libpq-int.h
++++ b/src/interfaces/libpq/libpq-int.h
+@@ -370,6 +370,16 @@ typedef struct pg_conn_host
+  * PGconn stores all the state data associated with a single connection
+  * to a backend.
+  */
++/* Stable storage for writes that may need to be retried by SSL/GSS. */
++typedef struct PGBorrowedOutput
++{
++	const char *data;
++	size_t		len;
++	size_t		offset;
++	bool		owned;
++	struct PGBorrowedOutput *next;
++} PGBorrowedOutput;
++
+ struct pg_conn
+ {
+ 	/* Saved values of connection options */
+@@ -581,6 +591,9 @@ struct pg_conn
+ 	int			inEnd;			/* offset to first position after avail data */
+ 
+ 	/* Buffer for data not yet sent to backend */
++	struct PGBorrowedOutput *borrowHead;
++	struct PGBorrowedOutput *borrowTail;
++	uint64		borrowBytes;
+ 	char	   *outBuffer;		/* currently allocated buffer */
+ 	int			outBufSize;		/* allocated size of buffer */
+ 	int			outCount;		/* number of chars waiting in buffer */
+@@ -791,6 +804,10 @@ extern int	PQsendCancelRequest(PGconn *cancelConn);
+ 
+ /* === in fe-misc.c === */
+ 
++extern void pqFreeBorrowedOutput(PGBorrowedOutput *head);
++extern int	pqSealBorrowedOutput(PGconn *conn);
++extern ssize_t pqsecure_write_segments(PGconn *conn, PGBorrowedOutput *head);
++
+  /*
+   * "Get" and "Put" routines return 0 if successful, EOF if not. Note that for
+   * Get, EOF merely means the buffer is exhausted, not that there is
+diff --git a/src/tools/pgindent/typedefs.list b/src/tools/pgindent/typedefs.list
+index a7a8dbdd23..bf07eafc3b 100644
+--- a/src/tools/pgindent/typedefs.list
++++ b/src/tools/pgindent/typedefs.list
+@@ -1914,6 +1914,7 @@ PFN
+ PGAlignedBlock
+ PGAlignedXLogBlock
+ PGAsyncStatusType
++PGBorrowedOutput
+ PGCALL2
+ PGCRYPTO_SHA_t
+ PGChecksummablePage

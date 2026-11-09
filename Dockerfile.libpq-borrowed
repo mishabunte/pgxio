@@ -1,8 +1,13 @@
 # Experimental only. The normal Dockerfile keeps the system libpq and copy path.
 FROM rust:slim-trixie@sha256:4df2ae8cfdfebdfc13a65da7f253b73d68983dc0339f2719bc17a279c913b13d AS libpq
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl ca-certificates bison flex libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*
-ARG POSTGRES_REF=e7cfc38544bd66dbf4c4417328bb4f263184e887
-RUN curl -fsSL https://codeload.github.com/mishabunte/postgres/tar.gz/${POSTGRES_REF} | tar xz -C /tmp && mv /tmp/postgres-${POSTGRES_REF} /postgres
+RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential curl ca-certificates bison flex libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*
+ARG POSTGRES_REF
+ARG POSTGRES_SHA256
+COPY scripts/verified_source.py scripts/sources.json /source-tools/
+RUN POSTGRES_REF="$POSTGRES_REF" POSTGRES_SHA256="$POSTGRES_SHA256" python3 /source-tools/verified_source.py /tmp/postgres.tar.gz postgres > /tmp/postgres-ref && tar xzf /tmp/postgres.tar.gz -C /tmp && mv /tmp/postgres-$(cat /tmp/postgres-ref) /postgres
+COPY patches/libpq/0001-output-segments.patch patches/libpq/0002-borrowed-parameters.patch patches/libpq/SHA256SUMS /patches/
+ARG APPLY_LIBPQ_PATCHES=1
+RUN cd /patches && sha256sum -c SHA256SUMS && if [ "$APPLY_LIBPQ_PATCHES" = 1 ]; then cd /postgres && patch -p1 < /patches/0001-output-segments.patch && patch -p1 < /patches/0002-borrowed-parameters.patch; fi
 WORKDIR /postgres
 ARG LIBPQ_SANITIZERS=""
 RUN if [ -n "$LIBPQ_SANITIZERS" ]; then export CFLAGS="-O1 -g -fsanitize=$LIBPQ_SANITIZERS -fno-omit-frame-pointer" LDFLAGS="-fsanitize=$LIBPQ_SANITIZERS"; fi; ./configure --prefix=/opt/pgxio-libpq --with-ssl=openssl --without-icu --without-readline --without-zlib --without-gssapi --without-ldap --without-libcurl --without-lz4 --without-zstd && make -C src/backend generated-headers && make -j2 -C src/interfaces/libpq && make -C src/interfaces/libpq install && make -C src/interfaces/libpq/test
@@ -10,9 +15,11 @@ RUN if [ -n "$LIBPQ_SANITIZERS" ]; then export CFLAGS="-O1 -g -fsanitize=$LIBPQ_
 RUN make -C src/include install
 
 FROM rust:slim-trixie@sha256:4df2ae8cfdfebdfc13a65da7f253b73d68983dc0339f2719bc17a279c913b13d AS build
-ARG NGINX_VERSION=1.30.5
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl ca-certificates git libclang-dev libpcre2-dev libssl-dev zlib1g-dev libpq-dev pkg-config && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz | tar xz -C /tmp && mv /tmp/nginx-${NGINX_VERSION} /nginx
+ARG NGINX_VERSION
+ARG NGINX_SHA256
+RUN apt-get update && apt-get install -y --no-install-recommends python3 build-essential curl ca-certificates git libclang-dev libpcre2-dev libssl-dev zlib1g-dev libpq-dev pkg-config && rm -rf /var/lib/apt/lists/*
+COPY scripts/verified_source.py scripts/sources.json /source-tools/
+RUN NGINX_VERSION="$NGINX_VERSION" NGINX_SHA256="$NGINX_SHA256" python3 /source-tools/verified_source.py /tmp/nginx.tar.gz > /tmp/nginx-version && tar xzf /tmp/nginx.tar.gz -C /tmp && mv /tmp/nginx-$(cat /tmp/nginx-version) /nginx
 WORKDIR /nginx
 RUN ./configure --prefix=/usr/local/nginx --with-compat --with-http_ssl_module --with-http_v2_module --with-http_stub_status_module --error-log-path=stderr --http-log-path=/dev/stdout --pid-path=/tmp/nginx.pid --http-client-body-temp-path=/tmp/client_body --http-proxy-temp-path=/tmp/proxy && make -j2
 ENV NGINX_SOURCE_DIR=/nginx NGINX_BUILD_DIR=/nginx/objs
@@ -27,11 +34,11 @@ ARG CARGO_FEATURES=borrowed-libpq
 RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/local/cargo/git --mount=type=cache,target=/build/target cargo test --release --locked --test core --test allocations --features "$CARGO_FEATURES" -- --nocapture && cargo build --release --locked --features "$CARGO_FEATURES" && cp target/release/libngx_http_pgxio_module.so /module.so
 
 FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f
+ARG APPLY_LIBPQ_PATCHES=1
 ARG CARGO_FEATURES=borrowed-libpq
-ARG POSTGRES_REF=e7cfc38544bd66dbf4c4417328bb4f263184e887
-ARG LIBPQ_BORROWED=1
+ARG POSTGRES_REF=af090508018be5ace443ba6e2814500c10842a4d
 LABEL io.pgxio.config-format="nginx-v1" io.pgxio.output-validation="off"
-LABEL io.pgxio.rest-input-validation="postgres" io.pgxio.borrowed-libpq="$LIBPQ_BORROWED" io.pgxio.cargo-features="$CARGO_FEATURES" io.pgxio.libpq-base="$POSTGRES_REF"
+LABEL io.pgxio.rest-input-validation="postgres" io.pgxio.borrowed-libpq="$APPLY_LIBPQ_PATCHES" io.pgxio.cargo-features="$CARGO_FEATURES" io.pgxio.libpq-base="$POSTGRES_REF"
 RUN apt-get update && apt-get install -y --no-install-recommends libssl3t64 libpcre2-8-0 zlib1g ca-certificates && rm -rf /var/lib/apt/lists/* && useradd --uid 10001 --no-create-home pgxio && mkdir -p /tmp/client_body /tmp/proxy /usr/local/nginx/logs && chown -R pgxio /tmp/client_body /tmp/proxy /usr/local/nginx
 COPY --from=libpq /opt/pgxio-libpq /opt/pgxio-libpq
 ENV LD_LIBRARY_PATH=/opt/pgxio-libpq/lib

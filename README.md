@@ -94,7 +94,7 @@ python3 -m pip install './sdk/python[django]'
 
 The default image uses stock libpq. An optional
 [experimental borrowed-buffer client](patches/libpq/README.md) is built from a
-pinned commit in the PostgreSQL fork. It needs no patched PostgreSQL server.
+checksum-verified PostgreSQL base with the bundled patches applied. It needs no patched PostgreSQL server.
 
 **Optional zero-copy request-body forwarding:** patched libpq sends eligible REST
 payloads directly from Nginx buffers, avoiding intermediate body copies in Rust

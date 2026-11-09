@@ -94,3 +94,10 @@ keys must remain private; they are not release artifacts.
 GitHub workflows are manual for the source preview. Enable automatic CI and update
 the support table after validation. Native packages, service-manager integration,
 minimum RAM, capacity benchmarks, Windows and musl are outside this gate.
+
+## Build tooling reconciliation
+
+The platform results above describe revision `127c82b`, not the reconciled tree.
+Current builds verify source archive checksums and apply the bundled libpq patches
+to the pinned PostgreSQL base. Full platform validation of these build-input
+changes has not been repeated.

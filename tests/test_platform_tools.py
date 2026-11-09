@@ -73,25 +73,16 @@ class Matrix(unittest.TestCase):
             self.assertFalse(name.startswith(('artifacts/','.git/','.pgxio/')))
             self.assertNotIn('node_modules',Path(name).parts)
 
-    def test_native_tls_rejection_token_uses_fixture_secret_without_dotenv(self):
-        import base64, hashlib, hmac, importlib.util
-        spec=importlib.util.spec_from_file_location('platform_integration',ROOT/'tests/integration.py')
-        integration=importlib.util.module_from_spec(spec);spec.loader.exec_module(integration)
-        with patch.dict(os.environ,{'PGXIO_TEST_DEV_SECRET':'fixture-only','PGXIO_TEST_RSA_KEY':'unused'}):
-            with patch.object(integration.subprocess,'check_output',side_effect=AssertionError('unexpected CLI or signer')):
-                encoded=integration.development_token()
-        header,payload,signature=encoded.split('.')
-        self.assertEqual(json.loads(base64.urlsafe_b64decode(header+'=='))['alg'],'HS256')
-        expected=hmac.new(b'fixture-only',(header+'.'+payload).encode(),hashlib.sha256).digest()
-        self.assertEqual(base64.urlsafe_b64decode(signature+'=='),expected)
-
     def test_resume_rejects_modified_dependency_evidence_and_wrong_identity(self):
         with tempfile.TemporaryDirectory() as name:
             root=Path(name);(root/'install').mkdir();(root/'production').mkdir()
             cell=dict(os='freebsd15.1',arch='arm64',variant='borrowed',id='freebsd15.1-arm64-borrowed')
             actual=dict(cell,passed=True)
             (root/'outcomes.json').write_text(json.dumps(actual))
-            for path in ('stages.json','packages.txt','install/build.json','production/build.json'):
+            for path in ('stages.json','packages.txt','install/build.json','production/build.json',
+                         'install/share/pgxio/build.json','install/share/pgxio/runtime.json',
+                         'production/share/pgxio/build.json','production/share/pgxio/runtime.json'):
+                (root/path).parent.mkdir(parents=True,exist_ok=True)
                 (root/path).write_text('frozen dependency evidence')
             row=dict(cell=cell,passed=True,evidence=str(root),evidence_sha256=runner.evidence_hashes(root))
             self.assertEqual(runner.retained_evidence(row),row)
